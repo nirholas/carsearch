@@ -10,6 +10,7 @@ import { recallsFor } from '../enrich/recalls.js';
 import { run } from '../pipeline.js';
 import type { PriceKind } from '../core/types.js';
 import { ask } from '../nl/index.js';
+import { loadVocabulary } from '../nl/vocabulary.js';
 
 /**
  * Read API over the aggregated index.
@@ -40,6 +41,35 @@ const int = (v: string | undefined): number | undefined => {
 };
 
 app.get('/api/health', async (c) => c.json({ ok: true, ...(await store.stats()) }));
+
+/**
+ * Makes and models for the search form's selects.
+ *
+ * Served from the same vocabulary the natural-language parser uses, so the
+ * dropdown and the sentence box can never disagree about what a model is
+ * called.
+ */
+app.get('/api/vocabulary', (c) => {
+  const v = loadVocabulary();
+  return c.json({
+    makes: v.makes.map((m) => m.replace(/\b\w/g, (ch) => ch.toUpperCase())),
+    models: v.models,
+  });
+});
+
+/** A real photo from the index, used as the landing background. */
+app.get('/api/hero', async (c) => {
+  const rows = await store.search({ priceKinds: ['sold', 'ask'], limit: 60, sort: 'newest' });
+  const withPhoto = rows.filter((r) => r.imageUrl);
+  const pick = withPhoto[Math.floor(Math.random() * withPhoto.length)];
+  return c.json({
+    imageUrl: pick?.imageUrl ?? null,
+    title: pick?.title ?? null,
+    price: pick?.price ?? null,
+    priceKind: pick?.priceKind ?? null,
+    sourceId: pick?.sourceId ?? null,
+  });
+});
 
 app.get('/api/sources', (c) =>
   c.json({

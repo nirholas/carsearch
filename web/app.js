@@ -204,6 +204,7 @@ function readFilters() {
 }
 
 async function runSearch(question) {
+  if (question) recordRecent(question);
   location.hash = '#/results';
   show('results');
   activeSource = 'all';
@@ -345,23 +346,113 @@ async function loadSourceChips() {
   } catch { /* the landing page still works without the chip strip */ }
 }
 
-/* ------------------------------------------------------- saved searches */
+/* ------------------------------------------- recent and saved searches */
 
 const SAVED_KEY = 'carsearch.saved';
+const RECENT_KEY = 'carsearch.recent';
 
-function readSaved() {
-  try { return JSON.parse(localStorage.getItem(SAVED_KEY) ?? '[]'); } catch { return []; }
+/** localStorage throws outright in some privacy modes, so every access is guarded. */
+function readList(key) {
+  try { return JSON.parse(localStorage.getItem(key) ?? '[]'); } catch { return []; }
+}
+function writeList(key, list) {
+  try { localStorage.setItem(key, JSON.stringify(list.slice(0, 12))); } catch { /* private mode */ }
 }
 
-function renderSaved() {
-  const saved = readSaved();
-  $('#saved').innerHTML = saved.length
-    ? '<div class="hint" style="margin-bottom:2px">Saved</div>' +
-      saved.map((s, i) => `<a href="#" data-i="${i}">${esc(s.label)}</a>`).join('')
-    : '';
-  for (const a of $('#saved').querySelectorAll('a')) {
-    a.addEventListener('click', (e) => { e.preventDefault(); $('#q').value = readSaved()[a.dataset.i].q; runSearch(readSaved()[a.dataset.i].q); });
+function renderPanel(sel, key, emptyText) {
+  const el = $(sel);
+  if (!el) return;
+  const list = readList(key);
+  el.innerHTML = list.length
+    ? list.map((s, i) => `<a href="#" data-key="${key}" data-i="${i}">${esc(s.label)}</a>`).join('')
+    : `<p class="empty">${esc(emptyText)}</p>`;
+  for (const a of el.querySelectorAll('a')) {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const item = readList(a.dataset.key)[Number(a.dataset.i)];
+      if (!item) return;
+      $('#q').value = item.q;
+      runSearch(item.q);
+    });
   }
+}
+
+function renderPanels() {
+  renderPanel('#recent-panel', RECENT_KEY, 'Your recent searches will appear here.');
+  renderPanel('#saved-panel', SAVED_KEY, 'Your saved searches will appear here.');
+  renderSavedSidebar();
+}
+
+function renderSavedSidebar() {
+  const el = $('#saved');
+  if (!el) return;
+  const list = readList(SAVED_KEY);
+  el.innerHTML = list.length
+    ? '<div class="hint" style="margin-bottom:2px">Saved</div>' + list.map((s, i) => `<a href="#" data-i="${i}">${esc(s.label)}</a>`).join('')
+    : '';
+  for (const a of el.querySelectorAll('a')) {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const item = readList(SAVED_KEY)[Number(a.dataset.i)];
+      if (item) { $('#q').value = item.q; runSearch(item.q); }
+    });
+  }
+}
+
+function recordRecent(q) {
+  if (!q) return;
+  const list = readList(RECENT_KEY).filter((s) => s.q !== q);
+  list.unshift({ q, label: q.slice(0, 44) });
+  writeList(RECENT_KEY, list);
+  renderPanels();
+}
+
+/* ----------------------------------------------- landing form behaviour */
+
+let VOCAB = { makes: [], models: {} };
+
+async function loadVocabulary() {
+  try {
+    VOCAB = await (await fetch('/api/vocabulary')).json();
+  } catch { return; }
+  const makeSel = $('#h-make');
+  if (!makeSel) return;
+  makeSel.innerHTML = '<option value="">Any make</option>' + VOCAB.makes.map((m) => `<option>${esc(m)}</option>`).join('');
+  makeSel.addEventListener('change', () => {
+    const models = VOCAB.models[makeSel.value.toLowerCase()] ?? [];
+    $('#h-model').innerHTML = '<option value="">Any model</option>' + models.map((m) => `<option>${esc(m)}</option>`).join('');
+  });
+}
+
+/** Uses a real listing photo as the landing background rather than stock art. */
+async function loadHero() {
+  try {
+    const h = await (await fetch('/api/hero')).json();
+    if (h.imageUrl) $('#hero-bg').style.backgroundImage = `url("${h.imageUrl}")`;
+  } catch { /* the flat background is a fine fallback */ }
+}
+
+/** Turns the structured form into the same sentence the description box takes. */
+function formToQuestion() {
+  const parts = [];
+  const make = $('#h-make').value.trim();
+  const model = $('#h-model').value.trim();
+  const zip = $('#h-zip').value.trim();
+  const yearMin = $('#h-yearMin').value.trim();
+  const yearMax = $('#h-yearMax').value.trim();
+  const priceMax = $('#h-priceMax').value.trim();
+  const mileageMax = $('#h-mileageMax').value.trim();
+  if (yearMin && yearMax) parts.push(`${yearMin}-${yearMax}`);
+  else if (yearMin) parts.push(`${yearMin} or newer`);
+  else if (yearMax) parts.push(`${yearMax} or older`);
+  if (make) parts.push(make);
+  if (model) parts.push(model);
+  if (priceMax) parts.push(`under ${priceMax}`);
+  if (mileageMax) parts.push(`under ${mileageMax} miles`);
+  if (zip) parts.push(zip);
+  const kinds = document.querySelector('.tab.active')?.dataset.kinds ?? 'ask';
+  if (kinds === 'sold') parts.push('sold');
+  return parts.join(' ').trim();
 }
 
 /* --------------------------------------------------------------------- wire */
@@ -370,6 +461,27 @@ $('#examples').innerHTML = EXAMPLES.map((e) => `<button class="example" type="bu
 for (const b of $('#examples').querySelectorAll('.example')) {
   b.addEventListener('click', () => { $('#q').value = b.textContent; runSearch(b.textContent); });
 }
+
+for (const t of document.querySelectorAll('.tab')) {
+  t.addEventListener('click', () => {
+    for (const o of document.querySelectorAll('.tab')) o.classList.toggle('active', o === t);
+  });
+}
+
+$('#adv-toggle').addEventListener('click', () => {
+  const adv = $('#adv');
+  adv.hidden = !adv.hidden;
+  $('#adv-toggle').setAttribute('aria-expanded', String(!adv.hidden));
+  $('#adv-toggle').textContent = adv.hidden ? 'Advanced search' : 'Hide advanced search';
+});
+
+$('#h-go').addEventListener('click', () => {
+  const q = formToQuestion();
+  if (!q) return;
+  $('#q').value = q;
+  runSearch(q);
+});
+
 $('#hero-search').addEventListener('submit', (e) => {
   e.preventDefault();
   const v = $('#hero-q').value.trim();
@@ -386,18 +498,22 @@ $('#reset').addEventListener('click', () => {
 $('#save-search').addEventListener('click', () => {
   const q = $('#q').value.trim();
   if (!q) return;
-  const saved = readSaved();
-  if (!saved.some((s) => s.q === q)) saved.unshift({ q, label: q.slice(0, 40) });
-  try { localStorage.setItem(SAVED_KEY, JSON.stringify(saved.slice(0, 12))); } catch { /* private mode */ }
-  renderSaved();
+  const list = readList(SAVED_KEY).filter((s) => s.q !== q);
+  list.unshift({ q, label: q.slice(0, 44) });
+  writeList(SAVED_KEY, list);
+  renderPanels();
 });
+$('#clear-saved').addEventListener('click', () => { writeList(SAVED_KEY, []); renderPanels(); });
+
 document.addEventListener('keydown', (e) => {
-  if (e.key === '/' && document.activeElement !== $('#q') && document.activeElement !== $('#hero-q')) {
+  if (e.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
     e.preventDefault();
     ($('#view-home').hidden ? $('#q') : $('#hero-q')).focus();
   }
 });
 
-renderSaved();
+renderPanels();
 loadSourceChips();
+loadVocabulary();
+loadHero();
 show(routeFromHash());

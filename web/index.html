@@ -23,39 +23,102 @@
   </nav>
 </header>
 
-<!-- Landing. Shown until a search has run, then never again this session. -->
+<!-- Landing -->
 <section id="view-home" class="hero">
-  <h1>Every car. <em>One search.</em></h1>
-  <p class="tagline">
-    Dealer inventory, private sellers, enthusiast auctions and salvage, in one place,
-    deduplicated by VIN so the same car appears once.
-  </p>
+  <div class="hero-bg" id="hero-bg" aria-hidden="true"></div>
+  <div class="hero-inner">
+    <h1>All the cars. <em>One search.</em></h1>
+    <p class="tagline">Browse listings from every major site at once, deduplicated by VIN, with what those cars actually sold for.</p>
 
-  <form id="hero-search" class="hero-search" role="search">
-    <input id="hero-q" type="search" placeholder="Try: porsche macan under 40k with low miles" aria-label="Search every source">
-    <button type="submit" class="primary">Search</button>
-  </form>
-
-  <div class="examples" id="examples"></div>
-
-  <div class="promise">
-    <div class="promise-item">
-      <div class="promise-k">What sellers ask</div>
-      <p>Every aggregator shows this. It is a hope, not a price.</p>
+    <div class="sourcebar">
+      <div id="source-chips" class="source-chips"></div>
+      <p class="disclaim">
+        carsearch is a search engine for vehicle listings. It is not affiliated with or endorsed by
+        any of the sites above.
+      </p>
     </div>
-    <div class="promise-item accent">
-      <div class="promise-k">What buyers paid</div>
-      <p>Completed auction results sit next to the listings, so you can see the gap. Nobody else shows this.</p>
-    </div>
-    <div class="promise-item">
-      <div class="promise-k">Whether it is a deal</div>
-      <p>Rated against real transactions, not against other sellers' asking prices.</p>
-    </div>
-  </div>
 
-  <div class="sourcebar">
-    <span class="sourcebar-lead">Searching</span>
-    <div id="source-chips" class="source-chips"></div>
+    <div class="searchcard">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-kinds="ask" role="tab">For sale</button>
+        <button class="tab" data-kinds="sold" role="tab">Sold prices</button>
+        <button class="tab" data-kinds="ask,sold,bid" role="tab">Everything</button>
+      </div>
+
+      <div class="card-body">
+        <div class="field-label">Search by make and model</div>
+        <div class="fieldrow">
+          <label class="fld">
+            <span>Make</span>
+            <select id="h-make"><option value="">Any make</option></select>
+          </label>
+          <label class="fld">
+            <span>Model</span>
+            <select id="h-model"><option value="">Any model</option></select>
+          </label>
+          <label class="fld narrow">
+            <span>ZIP</span>
+            <input id="h-zip" type="text" inputmode="numeric" placeholder="92101" maxlength="5">
+          </label>
+          <label class="fld narrow">
+            <span>Within</span>
+            <select id="h-radius">
+              <option value="any">Any distance</option>
+              <option value="50">50 miles</option>
+              <option value="100">100 miles</option>
+              <option value="250">250 miles</option>
+            </select>
+          </label>
+          <button id="h-go" class="primary">Search</button>
+        </div>
+
+        <button id="adv-toggle" class="adv-toggle" aria-expanded="false">Advanced search</button>
+        <div id="adv" class="adv" hidden>
+          <label class="fld"><span>Year from</span><input id="h-yearMin" type="number" inputmode="numeric" placeholder="2016"></label>
+          <label class="fld"><span>Year to</span><input id="h-yearMax" type="number" inputmode="numeric" placeholder="2026"></label>
+          <label class="fld"><span>Max price</span><input id="h-priceMax" type="number" inputmode="numeric" placeholder="40000"></label>
+          <label class="fld"><span>Max mileage</span><input id="h-mileageMax" type="number" inputmode="numeric" placeholder="70000"></label>
+        </div>
+
+        <div class="or"><span>or</span></div>
+
+        <div class="field-label">Search by description</div>
+        <form id="hero-search" class="hero-search" role="search">
+          <input id="hero-q" type="search" placeholder='Try "an old g wagon" or "what did a 2017 macan sell for"' aria-label="Describe the car you want">
+          <button type="submit" class="primary">Search</button>
+        </form>
+        <div class="examples" id="examples"></div>
+      </div>
+    </div>
+
+    <div class="panels">
+      <div class="panel">
+        <div class="panel-head">Recent searches</div>
+        <div class="panel-body" id="recent-panel"><p class="empty">Your recent searches will appear here.</p></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">Saved searches <button id="clear-saved" class="linkbtn">Delete all</button></div>
+        <div class="panel-body" id="saved-panel"><p class="empty">Your saved searches will appear here.</p></div>
+      </div>
+    </div>
+
+    <section class="how">
+      <h2>How carsearch works</h2>
+      <div class="how-grid">
+        <div class="how-item">
+          <div class="how-k">One search, every source</div>
+          <p>Dealer inventory, private sellers, enthusiast auctions and salvage in a single query. The same car listed on four sites appears once, badged with all four.</p>
+        </div>
+        <div class="how-item accent">
+          <div class="how-k">What buyers actually paid</div>
+          <p>Completed auction results sit beside the listings. Every other aggregator shows only what sellers are asking, which is a hope, not a price.</p>
+        </div>
+        <div class="how-item">
+          <div class="how-k">Deals rated against real sales</div>
+          <p>A price is graded against completed transactions, not against other sellers' asking prices. Below three comparable sales, no grade is shown at all.</p>
+        </div>
+      </div>
+    </section>
   </div>
 </section>
 
