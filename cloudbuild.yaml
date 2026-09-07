@@ -33,9 +33,12 @@ steps:
       # costs a connection to Postgres and nothing else.
       - --min-instances=0
       - --max-instances=10
-      # DATABASE_URL is a Secret Manager reference, never a literal, so the
-      # connection string is not readable from a `describe` on the service.
-      - --set-secrets=DATABASE_URL=carsearch-database-url:latest
+      # No DATABASE_URL on the first deploy: the image carries a read-only
+      # snapshot of the index so the service is useful immediately. Attach the
+      # secret to switch to Postgres, which is required before the crawler
+      # writes anything that has to survive a revision:
+      #   gcloud run services update carsearch-web --region=$_REGION \
+      #     --set-secrets=DATABASE_URL=carsearch-database-url:latest
 
 substitutions:
   _REGION: us-central1

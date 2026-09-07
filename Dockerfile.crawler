@@ -2,23 +2,25 @@
 #
 # Separated on purpose. A crawl takes minutes and drives a browser; a web
 # request takes milliseconds and must not compete with it for CPU or be held
-# open by it. Cloud Run Jobs also get a proper timeout and retry policy, which a
-# request-scoped background task on the web service does not.
-FROM mcr.microsoft.com/playwright:v1.63.0-noble
+# open by it. Cloud Run Jobs also get a real timeout, a retry policy and a
+# completion status, which a background task fired from an HTTP handler does not.
 
+FROM mcr.microsoft.com/playwright:v1.63.0-noble AS build
+WORKDIR /app
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci --omit=optional
+COPY src ./src
+RUN npx tsc -p tsconfig.json && cp src/store/*.sql dist/store/
+
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
 WORKDIR /app
 ENV NODE_ENV=production
-
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
-
-COPY tsconfig.json ./
-COPY src ./src
-RUN npm install --no-save tsx@^4.19.0
-
+RUN npm ci --omit=dev --omit=optional && npm cache clean --force
+COPY --from=build /app/dist ./dist
 USER pwuser
 
-# CRAWL_ARGS is set per job execution, so one image serves every crawl target,
+# CRAWL_ARGS is set per execution, so one image serves every crawl target,
 # e.g. "--make porsche --model macan,911 --max-price 40000".
 ENV CRAWL_ARGS="--make porsche --model macan"
-CMD ["sh", "-c", "npx tsx src/cli.ts search $CRAWL_ARGS"]
+CMD ["sh", "-c", "node dist/cli.js search $CRAWL_ARGS"]
