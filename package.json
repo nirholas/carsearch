@@ -1,0 +1,33 @@
+{
+  "name": "carsearch",
+  "version": "0.1.0",
+  "description": "One search across every place a car is listed for sale.",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "carsearch": "./dist/cli.js" },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc -p tsconfig.json",
+    "serve": "tsx src/api/server.ts",
+    "probe": "tsx src/cli.ts probe",
+    "search": "tsx src/cli.ts search",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "better-sqlite3": "^11.5.0",
+    "commander": "^12.1.0",
+    "hono": "^4.6.0",
+    "p-limit": "^6.1.0",
+    "playwright": "^1.48.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

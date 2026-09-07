@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>carsearch</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">car<span>search</span></a>
+  <form id="search" class="searchbar">
+    <input id="q" name="q" type="search" placeholder="Search every source. Try: porsche macan under 40k" autocomplete="off" aria-label="Search listings">
+    <button type="submit">Search</button>
+  </form>
+  <nav class="topnav">
+    <a href="#" data-tab="listings" class="active">Listings</a>
+    <a href="#" data-tab="comps">Sold prices</a>
+    <a href="#" data-tab="sources">Sources</a>
+  </nav>
+</header>
+
+<main class="layout">
+  <aside class="filters" aria-label="Filters">
+    <h2>Refine</h2>
+    <label>Make<input id="f-make" type="text" placeholder="Porsche"></label>
+    <label>Model<input id="f-model" type="text" placeholder="Macan"></label>
+    <div class="row">
+      <label>Year from<input id="f-yearMin" type="number" inputmode="numeric" placeholder="2016"></label>
+      <label>to<input id="f-yearMax" type="number" inputmode="numeric" placeholder="2026"></label>
+    </div>
+    <div class="row">
+      <label>Price min<input id="f-priceMin" type="number" inputmode="numeric" placeholder="0"></label>
+      <label>max<input id="f-priceMax" type="number" inputmode="numeric" placeholder="40000"></label>
+    </div>
+    <label>Max mileage<input id="f-mileageMax" type="number" inputmode="numeric" placeholder="70000"></label>
+    <label>Sort
+      <select id="f-sort">
+        <option value="price">Lowest price</option>
+        <option value="mileage">Lowest mileage</option>
+        <option value="year">Newest year</option>
+        <option value="newest">Recently listed</option>
+        <option value="days-on-market">Longest on market</option>
+      </select>
+    </label>
+    <fieldset>
+      <legend>Price type</legend>
+      <label class="check"><input type="checkbox" id="k-ask" checked> Asking prices</label>
+      <label class="check"><input type="checkbox" id="k-sold"> Completed sales</label>
+      <label class="check"><input type="checkbox" id="k-bid"> Live auction bids</label>
+      <p class="hint">Asks, bids and sales are three different numbers. Mixing them into one average is meaningless, so they are kept apart.</p>
+    </fieldset>
+    <button id="apply" class="primary">Apply</button>
+    <button id="reset" class="ghost">Reset</button>
+  </aside>
+
+  <section class="results" id="panel-listings">
+    <div id="summary" class="summary" hidden></div>
+    <div id="comps-strip" class="comps-strip" hidden></div>
+    <div id="list" class="list" aria-live="polite"></div>
+  </section>
+
+  <section class="results" id="panel-comps" hidden>
+    <div id="comps-detail"></div>
+  </section>
+
+  <section class="results" id="panel-sources" hidden>
+    <div id="sources-view"></div>
+  </section>
+</main>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>
