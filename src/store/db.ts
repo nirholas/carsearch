@@ -245,6 +245,26 @@ export class Store {
     };
   }
 
+  /**
+   * Completed sale prices for a vehicle's peer group, used to rate deals.
+   *
+   * The year window is deliberately narrow. A 2017 and a 2021 of the same model
+   * are different cars at different prices, and widening the window to gather a
+   * bigger sample produces a median that describes neither.
+   */
+  soldPricesFor(make: string | null, model: string | null, year: number | null, yearWindow = 2): number[] {
+    if (!make || !model || year === null) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT price FROM listings
+         WHERE price_kind = 'sold' AND price IS NOT NULL
+           AND LOWER(make) = LOWER(?) AND LOWER(model) LIKE LOWER(?)
+           AND year BETWEEN ? AND ?`,
+      )
+      .all(make, `%${model}%`, year - yearWindow, year + yearWindow) as { price: number }[];
+    return rows.map((r) => r.price);
+  }
+
   /** Price history for one listing, which is where a price drop becomes visible. */
   priceHistory(listingId: string): { observedAt: string; price: number }[] {
     return this.db

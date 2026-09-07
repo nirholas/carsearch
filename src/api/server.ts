@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import { Store, type SearchFilters } from '../store/db.js';
 import { SOURCES, registryStats, ADAPTERS } from '../sources/index.js';
 import { dedupe, dedupeStats } from '../core/dedupe.js';
+import { rateListing } from '../core/rating.js';
 import { recallsFor } from '../enrich/recalls.js';
 import { run } from '../pipeline.js';
 import type { PriceKind } from '../core/types.js';
@@ -81,6 +82,7 @@ app.get('/api/search', (c) => {
       priceHistory: store.priceHistory(g.primary.id),
       alsoOn: g.sources.filter((s) => s !== g.primary.sourceId),
       matchConfidence: g.confidence,
+      deal: rateListing(g.primary, store.soldPricesFor(g.primary.make, g.primary.model, g.primary.year)),
     })),
   });
 });
@@ -182,7 +184,42 @@ app.post('/api/ask', async (c) => {
       ...g.primary,
       daysOnMarket: store.daysOnMarket(g.primary.id),
       alsoOn: g.sources.filter((s) => s !== g.primary.sourceId),
+      deal: rateListing(g.primary, store.soldPricesFor(g.primary.make, g.primary.model, g.primary.year)),
     })),
+  });
+});
+
+/**
+ * The auction view: live bids and completed sales, newest first.
+ *
+ * Kept as its own endpoint rather than a filter on search because auctions read
+ * differently. A buyer scanning dealer inventory wants a dense list sorted by
+ * price; someone following auctions wants a grid, a clock and a result.
+ */
+app.get('/api/auctions', (c) => {
+  const q = c.req.query();
+  const rows = store.search({
+    make: q.make,
+    model: q.model,
+    yearMin: int(q.yearMin),
+    yearMax: int(q.yearMax),
+    priceKinds: ['sold', 'bid'],
+    sort: 'newest',
+    limit: int(q.limit) ?? 120,
+  });
+  const sold = rows.filter((r) => r.priceKind === 'sold');
+  const live = rows.filter((r) => r.priceKind === 'bid');
+  const prices = sold.map((s) => s.price).filter((p): p is number => p !== null).sort((a, b) => a - b);
+  return c.json({
+    live,
+    sold: sold.sort((a, b) => (b.eventDate ?? '').localeCompare(a.eventDate ?? '')),
+    summary: {
+      soldCount: sold.length,
+      liveCount: live.length,
+      median: prices.length ? prices[Math.floor(prices.length / 2)] : null,
+      low: prices[0] ?? null,
+      high: prices[prices.length - 1] ?? null,
+    },
   });
 });
 

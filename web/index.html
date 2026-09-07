@@ -4,24 +4,64 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>carsearch</title>
+<meta name="description" content="One search across every place a car is listed for sale, with what those cars actually sold for.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b5fff'/%3E%3Ctext x='16' y='23' font-size='20' font-family='system-ui,sans-serif' font-weight='700' fill='white' text-anchor='middle'%3Ec%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="/">car<span>search</span></a>
-  <form id="search" class="searchbar">
-    <input id="q" name="q" type="search" placeholder="Ask in plain English. Try: an old g wagon, or what did a 2017 macan sell for" autocomplete="off" aria-label="Ask for a car in plain English">
-    <button type="submit">Search</button>
+  <a class="brand" href="#/" data-route="home">car<span>search</span></a>
+  <form id="search" class="searchbar" role="search">
+    <input id="q" type="search" placeholder="Ask in plain English: an old g wagon, or what did a 2017 macan sell for"
+           autocomplete="off" aria-label="Search every source">
+    <button type="submit" class="primary">Search</button>
   </form>
   <nav class="topnav">
-    <a href="#" data-tab="listings" class="active">Listings</a>
-    <a href="#" data-tab="comps">Sold prices</a>
-    <a href="#" data-tab="sources">Sources</a>
+    <a href="#/results" data-route="results">Listings</a>
+    <a href="#/auctions" data-route="auctions">Auctions &amp; sold</a>
+    <a href="#/sources" data-route="sources">Sources</a>
   </nav>
 </header>
 
-<main class="layout">
-  <aside class="filters" aria-label="Filters">
+<!-- Landing. Shown until a search has run, then never again this session. -->
+<section id="view-home" class="hero">
+  <h1>Every car. <em>One search.</em></h1>
+  <p class="tagline">
+    Dealer inventory, private sellers, enthusiast auctions and salvage, in one place,
+    deduplicated by VIN so the same car appears once.
+  </p>
+
+  <form id="hero-search" class="hero-search" role="search">
+    <input id="hero-q" type="search" placeholder="Try: porsche macan under 40k with low miles" aria-label="Search every source">
+    <button type="submit" class="primary">Search</button>
+  </form>
+
+  <div class="examples" id="examples"></div>
+
+  <div class="promise">
+    <div class="promise-item">
+      <div class="promise-k">What sellers ask</div>
+      <p>Every aggregator shows this. It is a hope, not a price.</p>
+    </div>
+    <div class="promise-item accent">
+      <div class="promise-k">What buyers paid</div>
+      <p>Completed auction results sit next to the listings, so you can see the gap. Nobody else shows this.</p>
+    </div>
+    <div class="promise-item">
+      <div class="promise-k">Whether it is a deal</div>
+      <p>Rated against real transactions, not against other sellers' asking prices.</p>
+    </div>
+  </div>
+
+  <div class="sourcebar">
+    <span class="sourcebar-lead">Searching</span>
+    <div id="source-chips" class="source-chips"></div>
+  </div>
+</section>
+
+<!-- Results -->
+<main id="view-results" class="layout" hidden>
+  <aside class="filters" aria-label="Refine results">
     <h2>Refine</h2>
     <label>Make<input id="f-make" type="text" placeholder="Porsche"></label>
     <label>Model<input id="f-model" type="text" placeholder="Macan"></label>
@@ -48,26 +88,36 @@
       <label class="check"><input type="checkbox" id="k-ask" checked> Asking prices</label>
       <label class="check"><input type="checkbox" id="k-sold"> Completed sales</label>
       <label class="check"><input type="checkbox" id="k-bid"> Live auction bids</label>
-      <p class="hint">Asks, bids and sales are three different numbers. Mixing them into one average is meaningless, so they are kept apart.</p>
+      <p class="hint">Asks, bids and sales are three different numbers. Averaging across them is meaningless, so they stay apart.</p>
     </fieldset>
     <button id="apply" class="primary">Apply</button>
     <button id="reset" class="ghost">Reset</button>
+    <button id="save-search" class="ghost">Save this search</button>
+    <div id="saved" class="saved"></div>
   </aside>
 
-  <section class="results" id="panel-listings">
+  <section class="results">
     <div id="understood" class="understood" hidden></div>
-    <div id="summary" class="summary" hidden></div>
     <div id="comps-strip" class="comps-strip" hidden></div>
+    <div id="source-tabs" class="source-tabs" hidden role="tablist" aria-label="Filter by source"></div>
+    <div id="summary" class="summary" hidden></div>
     <div id="list" class="list" aria-live="polite"></div>
   </section>
+</main>
 
-  <section class="results" id="panel-comps" hidden>
-    <div id="comps-detail"></div>
-  </section>
+<!-- Auctions and completed sales -->
+<main id="view-auctions" class="auctions" hidden>
+  <div class="auction-head">
+    <h2>Auctions &amp; completed sales</h2>
+    <p>What cars actually sold for. Live auctions show the current bid, which is not a price anyone has paid yet.</p>
+  </div>
+  <div id="auction-summary" class="comps-strip" hidden></div>
+  <div id="auction-live"></div>
+  <div id="auction-sold"></div>
+</main>
 
-  <section class="results" id="panel-sources" hidden>
-    <div id="sources-view"></div>
-  </section>
+<main id="view-sources" class="sources-view" hidden>
+  <div id="sources-body"></div>
 </main>
 
 <script src="/app.js" type="module"></script>
