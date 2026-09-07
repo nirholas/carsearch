@@ -286,8 +286,16 @@ app.use('/*', serveStatic({ root: './web' }));
 
 const port = Number(process.env.PORT ?? 8787);
 const stats = await store.stats();
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`carsearch API on http://localhost:${info.port}`);
+/**
+ * Bind on all interfaces, not just loopback.
+ *
+ * Cloud Run routes to the container's external interface and treats a
+ * loopback-only listener as a failed start, and any port-forwarding tunnel
+ * (Codespaces, ngrok, a dev container) cannot see one either. The default is
+ * the one setting that works locally and nowhere else.
+ */
+serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
+  console.log(`carsearch listening on 0.0.0.0:${info.port}`);
   console.log(`index holds ${stats.listings} listings across ${stats.bySource.length} sources`);
 });
 
