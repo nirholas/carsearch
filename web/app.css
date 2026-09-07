@@ -20,6 +20,13 @@
   }
 }
 * { box-sizing: border-box; }
+
+/*
+ * A class that sets `display` beats the user-agent's `[hidden] { display: none }`,
+ * so every panel styled as flex or grid stayed visible while empty. The empty
+ * bordered strip above the results was this, not a rendering glitch.
+ */
+[hidden] { display: none !important; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -73,9 +80,19 @@ button.ghost { background: transparent; }
   background: var(--bg); color: var(--ink); font-size: 14px;
 }
 .filters .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/*
+ * A grid item's default `min-width: auto` is the input's intrinsic width, which
+ * is wider than half the sidebar, so the year and price pairs overflowed the
+ * panel and sat on top of the results column.
+ */
+.filters .row > label { min-width: 0; }
+/* Checkboxes are excluded: a full-width checkbox squeezes its own label into a
+   vertical stack of single words. */
+.filters input:not([type="checkbox"]), .filters select { min-width: 0; width: 100%; }
+.filters .check input[type="checkbox"] { width: auto; flex: none; margin: 0; }
 fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0; padding: 10px; }
 legend { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 0 4px; }
-.check { flex-direction: row !important; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; }
+.check { flex-direction: row !important; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; white-space: nowrap; }
 .hint { font-size: 11px; color: var(--muted); margin: 8px 0 0; line-height: 1.45; }
 
 .summary { padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 14px; font-size: 13px; color: var(--muted); }
