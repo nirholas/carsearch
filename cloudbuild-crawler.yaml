@@ -1,0 +1,41 @@
+# Cloud Build: the carsearch crawler, deployed as a Cloud Run Job.
+#
+# A Job rather than a service because a crawl is a task that finishes. Jobs get
+# a real timeout, a retry policy and a completion status; a background task
+# fired from an HTTP handler gets none of those and dies when the instance
+# scales in.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/crawler:$SHORT_SHA
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/crawler:latest
+      - --file=Dockerfile.crawler
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, $_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/crawler]
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        # `jobs deploy` creates or updates, so one command covers both cases.
+        gcloud run jobs deploy carsearch-crawler \
+          --image=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/crawler:$SHORT_SHA \
+          --region=$_REGION \
+          --memory=4Gi \
+          --cpu=2 \
+          --task-timeout=3600s \
+          --max-retries=1 \
+          --set-secrets=DATABASE_URL=carsearch-database-url:latest
+
+substitutions:
+  _REGION: us-central1
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/crawler:$SHORT_SHA

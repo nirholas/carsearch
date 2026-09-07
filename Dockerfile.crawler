@@ -1,0 +1,24 @@
+# The crawler, run as a Cloud Run Job rather than inside the web container.
+#
+# Separated on purpose. A crawl takes minutes and drives a browser; a web
+# request takes milliseconds and must not compete with it for CPU or be held
+# open by it. Cloud Run Jobs also get a proper timeout and retry policy, which a
+# request-scoped background task on the web service does not.
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm install --no-save tsx@^4.19.0
+
+USER pwuser
+
+# CRAWL_ARGS is set per job execution, so one image serves every crawl target,
+# e.g. "--make porsche --model macan,911 --max-price 40000".
+ENV CRAWL_ARGS="--make porsche --model macan"
+CMD ["sh", "-c", "npx tsx src/cli.ts search $CRAWL_ARGS"]

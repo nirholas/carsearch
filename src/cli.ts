@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { writeFileSync } from 'node:fs';
 import { run, closeBrowser } from './pipeline.js';
-import { Store } from './store/db.js';
+import { openStore } from './store/open.js';
 import { SOURCES, registryStats, ADAPTERS } from './sources/index.js';
 import { probeSources, formatProbeTable } from './probe.js';
 import { recallsFor } from './enrich/recalls.js';
@@ -75,7 +75,7 @@ program
   .option('--db <path>', 'sqlite path', 'data/carsearch.db')
   .option('--json <path>', 'write results to a JSON file')
   .action(async (o: Record<string, unknown>) => {
-    const store = new Store(o.db as string);
+    const store = await openStore({ sqlitePath: o.db as string });
     const result = await run({
       query: {
         make: o.make as string | undefined,
@@ -122,7 +122,7 @@ program
       writeFileSync(o.json as string, JSON.stringify({ groups: result.groups, stats: result.stats }, null, 2));
       console.log(`\nwrote ${o.json}`);
     }
-    store.close();
+    await store.close();
     await closeBrowser();
   });
 
@@ -134,12 +134,12 @@ program
   .option('--min-year <n>', 'minimum model year', Number, 1990)
   .option('--max-year <n>', 'maximum model year', Number, new Date().getFullYear() + 1)
   .option('--db <path>', 'sqlite path', 'data/carsearch.db')
-  .action((o: Record<string, unknown>) => {
-    const store = new Store(o.db as string);
-    const c = store.soldComps(o.make as string, o.model as string, o.minYear as number, o.maxYear as number);
+  .action(async (o: Record<string, unknown>) => {
+    const store = await openStore({ sqlitePath: o.db as string });
+    const c = await store.soldComps(o.make as string, o.model as string, o.minYear as number, o.maxYear as number);
     if (c.count === 0) {
       console.log('No completed sales recorded yet. Run a search including bringatrailer or carsandbids first.');
-      store.close();
+      await store.close();
       return;
     }
     console.log(`\n${c.count} completed sales, ${o.minYear}-${o.maxYear} ${o.make} ${o.model}`);
@@ -147,7 +147,7 @@ program
     for (const s of c.sales) {
       console.log(`${money(s.price).padStart(9)}  ${(s.event_date ?? '').padEnd(11)} ${s.title.slice(0, 60)}`);
     }
-    store.close();
+    await store.close();
   });
 
 program
@@ -203,9 +203,9 @@ program
     console.log('query     ', JSON.stringify(parsed.query));
     if (o.parseOnly) return;
 
-    const store = new Store(o.db);
+    const store = await openStore({ sqlitePath: o.db });
     const q = parsed.query;
-    const rows = store.search({
+    const rows = await store.search({
       make: q.make,
       model: q.models?.[0],
       yearMin: q.yearMin,
@@ -226,18 +226,18 @@ program
     if (rows.length === 0) {
       console.log('The index only holds what has been crawled. Run `search` for this vehicle first.');
     }
-    store.close();
+    await store.close();
   });
 
 program
   .command('stats')
   .description('What is in the database')
   .option('--db <path>', 'sqlite path', 'data/carsearch.db')
-  .action((o: { db: string }) => {
-    const store = new Store(o.db);
-    const s = store.stats();
+  .action(async (o: { db: string }) => {
+    const store = await openStore({ sqlitePath: o.db });
+    const s = await store.stats();
     console.log(JSON.stringify(s, null, 2));
-    store.close();
+    await store.close();
   });
 
 program.parseAsync(process.argv).catch(async (e) => {

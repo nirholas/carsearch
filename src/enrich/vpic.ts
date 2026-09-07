@@ -1,5 +1,5 @@
 import type { Listing } from '../core/types.js';
-import type { Store } from '../store/db.js';
+import type { CarStore } from '../store/store.js';
 import { isValidVin } from '../core/normalize.js';
 
 /**
@@ -31,11 +31,11 @@ export interface VinDecode {
   ErrorText?: string;
 }
 
-export async function decodeVin(vin: string, store?: Store): Promise<VinDecode | null> {
+export async function decodeVin(vin: string, store?: CarStore): Promise<VinDecode | null> {
   if (!isValidVin(vin)) return null;
   const key = vin.toUpperCase();
 
-  const cached = store?.getVinDecode<VinDecode>(key);
+  const cached = store ? await store.getVinDecode<VinDecode>(key) : null;
   if (cached) return cached;
 
   try {
@@ -46,7 +46,7 @@ export async function decodeVin(vin: string, store?: Store): Promise<VinDecode |
     const body = (await res.json()) as { Results?: VinDecode[] };
     const decoded = body.Results?.[0];
     if (!decoded) return null;
-    store?.cacheVinDecode(key, decoded);
+    await store?.cacheVinDecode(key, decoded);
     return decoded;
   } catch {
     return null;
@@ -60,7 +60,7 @@ export async function decodeVin(vin: string, store?: Store): Promise<VinDecode |
  * on conflict. `series` is the exception: no listing site publishes it, so it
  * can only ever come from here.
  */
-export async function enrichListing(listing: Listing, store?: Store): Promise<Listing> {
+export async function enrichListing(listing: Listing, store?: CarStore): Promise<Listing> {
   if (!isValidVin(listing.vin)) return listing;
   const d = await decodeVin(listing.vin, store);
   if (!d || d.ErrorCode?.startsWith('1')) return listing;
@@ -78,7 +78,7 @@ export async function enrichListing(listing: Listing, store?: Store): Promise<Li
 }
 
 /** Enriches a batch with a small concurrency cap, since vPIC is a shared public service. */
-export async function enrichAll(listings: Listing[], store?: Store, concurrency = 6): Promise<Listing[]> {
+export async function enrichAll(listings: Listing[], store?: CarStore, concurrency = 6): Promise<Listing[]> {
   const out: Listing[] = [];
   for (let i = 0; i < listings.length; i += concurrency) {
     const batch = listings.slice(i, i + concurrency);

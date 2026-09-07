@@ -5,7 +5,7 @@ import { enrichAll } from './enrich/vpic.js';
 import { fetchText } from './transport/fetcher.js';
 import { evaluateInPage, closeBrowser } from './transport/browser.js';
 import { ADAPTERS } from './sources/index.js';
-import { Store } from './store/db.js';
+import type { CarStore } from './store/store.js';
 
 /**
  * The ingestion pipeline.
@@ -18,7 +18,7 @@ import { Store } from './store/db.js';
 
 export interface RunOptions {
   query: SearchQuery;
-  store?: Store;
+  store?: CarStore;
   sourceIds?: string[];
   enrich?: boolean;
   onLog?: (msg: string) => void;
@@ -65,12 +65,12 @@ export async function run(opts: RunOptions): Promise<RunResult> {
       const rows = await adapter.search(opts.query, ctx);
       collected.push(...rows);
       log(`  ${adapter.source.id}: returned ${rows.length}, collected now ${collected.length}`);
-      opts.store?.recordRun(adapter.source.id, true, rows.length, 0, Date.now() - t0);
+      await opts.store?.recordRun(adapter.source.id, true, rows.length, 0, Date.now() - t0);
     } catch (e) {
       const msg = (e as Error).message.split('\n')[0] ?? 'unknown';
       log(`${adapter.source.id} FAILED: ${msg}`);
       failed.push(adapter.source.id);
-      opts.store?.recordRun(adapter.source.id, false, 0, 0, Date.now() - t0, msg);
+      await opts.store?.recordRun(adapter.source.id, false, 0, 0, Date.now() - t0, msg);
     }
   }
 
@@ -83,10 +83,10 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   const groups = dedupe(kept);
 
   if (opts.store) {
-    const w = opts.store.upsertMany(kept);
+    const w = await opts.store.upsertMany(kept);
     log(`  store: wrote ${JSON.stringify(w)} from ${kept.length} kept`);
-    opts.store.recordRejects(rejected);
-    opts.store.saveGroups(groups);
+    await opts.store.recordRejects(rejected);
+    await opts.store.saveGroups(groups);
   }
 
   const bySource: Record<string, number> = {};

@@ -17,7 +17,9 @@
     "probe": "tsx src/cli.ts probe",
     "search": "tsx src/cli.ts search",
     "test": "node --test --import tsx tests/*.test.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check:pins": "node scripts/check-playwright-pin.mjs",
+    "docker:build": "docker build -t carsearch-web -f Dockerfile ."
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
@@ -26,12 +28,14 @@
     "commander": "^12.1.0",
     "hono": "^4.6.0",
     "p-limit": "^6.1.0",
-    "playwright": "^1.48.0",
+    "pg": "^8.23.0",
+    "playwright": "1.63.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.7.0",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   },

@@ -1,7 +1,8 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
-import { Store, type SearchFilters } from '../store/db.js';
+import { openStore } from '../store/open.js';
+import type { SearchFilters } from '../store/store.js';
 import { SOURCES, registryStats, ADAPTERS } from '../sources/index.js';
 import { dedupe, dedupeStats } from '../core/dedupe.js';
 import { rateListing } from '../core/rating.js';
@@ -19,7 +20,12 @@ import { ask } from '../nl/index.js';
  * two is what makes meta-search sites feel slow.
  */
 
-const store = new Store(process.env.CARSEARCH_DB ?? 'data/carsearch.db');
+/**
+ * Storage is chosen by environment, not by build. DATABASE_URL means Postgres,
+ * which is what production needs so that price history survives a deploy;
+ * otherwise the local SQLite file, so a developer needs nothing running.
+ */
+const store = await openStore({ sqlitePath: process.env.CARSEARCH_DB ?? 'data/carsearch.db' });
 const app = new Hono();
 
 app.use('/*', async (c, next) => {
@@ -33,7 +39,7 @@ const int = (v: string | undefined): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-app.get('/api/health', (c) => c.json({ ok: true, ...store.stats() }));
+app.get('/api/health', async (c) => c.json({ ok: true, ...(await store.stats()) }));
 
 app.get('/api/sources', (c) =>
   c.json({
@@ -50,7 +56,7 @@ app.get('/api/sources', (c) =>
  * at once, and returning it once with the sites it appears on is both more
  * honest and more useful than inflating the count.
  */
-app.get('/api/search', (c) => {
+app.get('/api/search', async (c) => {
   const q = c.req.query();
   const filters: SearchFilters = {
     make: q.make,
@@ -70,20 +76,22 @@ app.get('/api/search', (c) => {
     sourceIds: q.sources ? q.sources.split(',') : undefined,
   };
 
-  const listings = store.search(filters);
+  const listings = await store.search(filters);
   const groups = dedupe(listings);
 
   return c.json({
     query: filters,
     stats: dedupeStats(listings, groups),
-    results: groups.map((g) => ({
-      ...g.primary,
-      daysOnMarket: store.daysOnMarket(g.primary.id),
-      priceHistory: store.priceHistory(g.primary.id),
-      alsoOn: g.sources.filter((s) => s !== g.primary.sourceId),
-      matchConfidence: g.confidence,
-      deal: rateListing(g.primary, store.soldPricesFor(g.primary.make, g.primary.model, g.primary.year)),
-    })),
+    results: await Promise.all(
+      groups.map(async (g) => ({
+        ...g.primary,
+        daysOnMarket: await store.daysOnMarket(g.primary.id),
+        priceHistory: await store.priceHistory(g.primary.id),
+        alsoOn: g.sources.filter((s) => s !== g.primary.sourceId),
+        matchConfidence: g.confidence,
+        deal: rateListing(g.primary, await store.soldPricesFor(g.primary.make, g.primary.model, g.primary.year)),
+      })),
+    ),
   });
 });
 
@@ -94,14 +102,14 @@ app.get('/api/search', (c) => {
  * are asking; this returns what buyers actually paid, with the spread between
  * the two.
  */
-app.get('/api/comps', (c) => {
+app.get('/api/comps', async (c) => {
   const { make, model } = c.req.query();
   if (!make || !model) return c.json({ error: 'make and model are required' }, 400);
   const yearMin = int(c.req.query('yearMin')) ?? 1990;
   const yearMax = int(c.req.query('yearMax')) ?? new Date().getFullYear() + 1;
 
-  const sold = store.soldComps(make, model, yearMin, yearMax);
-  const asking = store.search({ make, model, yearMin, yearMax, priceKinds: ['ask'], limit: 1000 });
+  const sold = await store.soldComps(make, model, yearMin, yearMax);
+  const asking = await store.search({ make, model, yearMin, yearMax, priceKinds: ['ask'], limit: 1000 });
   const askPrices = asking.map((a) => a.price).filter((p): p is number => p !== null).sort((a, b) => a - b);
   const askMedian = askPrices.length
     ? askPrices.length % 2
@@ -122,8 +130,7 @@ app.get('/api/comps', (c) => {
 
 app.get('/api/listing/:id', async (c) => {
   const id = decodeURIComponent(c.req.param('id'));
-  const [listing] = store.search({ limit: 1, text: undefined, ...({} as SearchFilters) }).filter((l) => l.id === id);
-  const found = listing ?? store.search({ limit: 5000 }).find((l) => l.id === id);
+  const found = (await store.search({ limit: 5000 })).find((l) => l.id === id);
   if (!found) return c.json({ error: 'not found' }, 404);
 
   const recalls =
@@ -131,11 +138,11 @@ app.get('/api/listing/:id', async (c) => {
 
   return c.json({
     listing: found,
-    priceHistory: store.priceHistory(found.id),
-    daysOnMarket: store.daysOnMarket(found.id),
+    priceHistory: await store.priceHistory(found.id),
+    daysOnMarket: await store.daysOnMarket(found.id),
     recalls: recalls ? { count: recalls.count, parkIt: recalls.parkIt, parkOutSide: recalls.parkOutSide, campaigns: recalls.campaigns.slice(0, 5) } : null,
     comps: found.make && found.model && found.year
-      ? store.soldComps(found.make, found.model, found.year - 2, found.year + 2)
+      ? await store.soldComps(found.make, found.model, found.year - 2, found.year + 2)
       : null,
   });
 });
@@ -157,7 +164,7 @@ app.post('/api/ask', async (c) => {
   const parsed = await ask(text);
   const q = parsed.query;
 
-  const listings = store.search({
+  const listings = await store.search({
     make: q.make,
     model: q.models?.[0],
     yearMin: q.yearMin,
@@ -180,12 +187,14 @@ app.post('/api/ask', async (c) => {
     parser: parsed.parser,
     query: q,
     stats: dedupeStats(listings, groups),
-    results: groups.map((g) => ({
-      ...g.primary,
-      daysOnMarket: store.daysOnMarket(g.primary.id),
-      alsoOn: g.sources.filter((s) => s !== g.primary.sourceId),
-      deal: rateListing(g.primary, store.soldPricesFor(g.primary.make, g.primary.model, g.primary.year)),
-    })),
+    results: await Promise.all(
+      groups.map(async (g) => ({
+        ...g.primary,
+        daysOnMarket: await store.daysOnMarket(g.primary.id),
+        alsoOn: g.sources.filter((s) => s !== g.primary.sourceId),
+        deal: rateListing(g.primary, await store.soldPricesFor(g.primary.make, g.primary.model, g.primary.year)),
+      })),
+    ),
   });
 });
 
@@ -196,9 +205,9 @@ app.post('/api/ask', async (c) => {
  * differently. A buyer scanning dealer inventory wants a dense list sorted by
  * price; someone following auctions wants a grid, a clock and a result.
  */
-app.get('/api/auctions', (c) => {
+app.get('/api/auctions', async (c) => {
   const q = c.req.query();
-  const rows = store.search({
+  const rows = await store.search({
     make: q.make,
     model: q.model,
     yearMin: int(q.yearMin),
@@ -246,9 +255,10 @@ app.post('/api/crawl', async (c) => {
 app.use('/*', serveStatic({ root: './web' }));
 
 const port = Number(process.env.PORT ?? 8787);
+const stats = await store.stats();
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`carsearch API on http://localhost:${info.port}`);
-  console.log(`index holds ${store.stats().listings} listings across ${store.stats().bySource.length} sources`);
+  console.log(`index holds ${stats.listings} listings across ${stats.bySource.length} sources`);
 });
 
 export { app };

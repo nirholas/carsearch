@@ -1,0 +1,47 @@
+# Cloud Build: the carsearch web service.
+#
+# Two images are built from this repo, this one and the crawler
+# (cloudbuild-crawler.yaml). They share a base and a source tree but have
+# opposite runtime shapes: the web service must answer in milliseconds and scale
+# to zero, the crawler runs for minutes and must not compete with it.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/web:$SHORT_SHA
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/web:latest
+      - --file=Dockerfile
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, $_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/web]
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - carsearch-web
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/web:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --allow-unauthenticated
+      - --port=8080
+      - --memory=1Gi
+      - --cpu=1
+      # Scales to zero. The index is read-only at request time, so a cold start
+      # costs a connection to Postgres and nothing else.
+      - --min-instances=0
+      - --max-instances=10
+      # DATABASE_URL is a Secret Manager reference, never a literal, so the
+      # connection string is not readable from a `describe` on the service.
+      - --set-secrets=DATABASE_URL=carsearch-database-url:latest
+
+substitutions:
+  _REGION: us-central1
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/web:$SHORT_SHA
