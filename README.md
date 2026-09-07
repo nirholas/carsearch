@@ -111,4 +111,10 @@ The recurring failure mode in this category is not an error, it is a plausible w
 
 ## License
 
-MIT
+Copyright (c) 2026. All rights reserved.
+
+Proprietary and confidential. This is not open-source software. No permission is granted to use,
+copy, modify, or distribute this code without prior written consent. See [LICENSE](LICENSE).
+
+Third-party dependencies keep their own licenses, and every one currently in use is permissive
+(MIT or Apache-2.0). Nothing copyleft is linked, so the proprietary status of this codebase holds.

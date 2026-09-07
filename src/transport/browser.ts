@@ -52,6 +52,12 @@ async function getContext(): Promise<BrowserContext> {
   return context;
 }
 
+/** Drops the current session so the next request starts with fresh cookies and storage. */
+export async function resetContext(): Promise<void> {
+  await context?.close().catch(() => {});
+  context = null;
+}
+
 export async function closeBrowser(): Promise<void> {
   await context?.close().catch(() => {});
   await browser?.close().catch(() => {});
@@ -82,6 +88,13 @@ export async function evaluateInPage<T>(url: string, fn: () => T, opts: Evaluate
       lastError = e as Error;
       if (!(e instanceof ChallengedError)) throw e;
       recordChallenge(url);
+      /**
+       * A challenge that does not clear on its own is a tainted session, not a
+       * slow one. Cloudflare marks the visitor by cookie as well as by address,
+       * so waiting longer in the same context just re-presents the same wall.
+       * Dropping the context resets the half of that pair we control.
+       */
+      await resetContext();
     }
   }
   throw lastError ?? new Error(`failed to evaluate ${url}`);
