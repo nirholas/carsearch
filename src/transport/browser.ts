@@ -12,9 +12,28 @@ const UA =
 
 let browser: Browser | null = null;
 let context: BrowserContext | null = null;
+/**
+ * The in-flight launch, memoized so concurrent callers share one browser.
+ *
+ * Caching the RESULT instead of the promise is a race: with sources crawling in
+ * parallel, two adapters both saw a null context at startup, both called
+ * chromium.launch(), and the second assignment orphaned the first browser. It
+ * was never closed, so its process and stdio pipes kept the Node event loop
+ * alive and the crawler hung after finishing all of its work, which reads as a
+ * deadlock rather than a leak.
+ */
+let contextPromise: Promise<BrowserContext> | null = null;
 
 async function getContext(): Promise<BrowserContext> {
   if (context) return context;
+  if (contextPromise) return contextPromise;
+  contextPromise = launchContext().finally(() => {
+    contextPromise = null;
+  });
+  return contextPromise;
+}
+
+async function launchContext(): Promise<BrowserContext> {
   browser = await chromium.launch({
     args: ['--disable-blink-features=AutomationControlled'],
   });
@@ -52,17 +71,41 @@ async function getContext(): Promise<BrowserContext> {
   return context;
 }
 
-/** Drops the current session so the next request starts with fresh cookies and storage. */
+/**
+ * Retires the current session so the next request starts with fresh cookies.
+ *
+ * Deliberately does NOT close the context immediately. With sources crawling
+ * concurrently, other adapters hold open pages in it, and closing it out from
+ * under them destroys their pages mid-navigation. Those failures would surface
+ * as unrelated sites appearing to block us, which is the most expensive kind of
+ * false signal to chase.
+ *
+ * So the reference is dropped straight away (new pages get a clean context) and
+ * the retired one is closed once its own pages have finished, with a cap so a
+ * hung page cannot leak it forever.
+ */
 export async function resetContext(): Promise<void> {
-  await context?.close().catch(() => {});
+  const retired = context;
   context = null;
+  if (!retired) return;
+
+  void (async () => {
+    for (let i = 0; i < 60; i++) {
+      if (retired.pages().length === 0) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    await retired.close().catch(() => {});
+  })();
 }
 
 export async function closeBrowser(): Promise<void> {
+  // A launch that is still in flight must finish before we can close what it made.
+  if (contextPromise) await contextPromise.catch(() => {});
   await context?.close().catch(() => {});
   await browser?.close().catch(() => {});
   context = null;
   browser = null;
+  contextPromise = null;
 }
 
 /**

@@ -72,6 +72,7 @@ program
   .option('--zip <zip>', 'origin zip', '92101')
   .option('--sources <ids>', 'comma-separated source ids to run')
   .option('--no-enrich', 'skip VIN decoding')
+  .option('--concurrency <n>', 'sources to crawl at once (1 disables concurrency)', Number)
   .option('--db <path>', 'sqlite path', 'data/carsearch.db')
   .option('--json <path>', 'write results to a JSON file')
   .action(async (o: Record<string, unknown>) => {
@@ -90,6 +91,7 @@ program
       store,
       sourceIds: o.sources ? String(o.sources).split(',').map((s) => s.trim()) : undefined,
       enrich: o.enrich !== false,
+      concurrency: o.concurrency as number | undefined,
     });
 
     console.log('\n==== RESULT ====');
@@ -124,6 +126,9 @@ program
     }
     await store.close();
     await closeBrowser();
+    if (process.env.CARSEARCH_TRACE) {
+      console.log(`  [trace] holding node open: ${JSON.stringify(process.getActiveResourcesInfo())}`);
+    }
   });
 
 program

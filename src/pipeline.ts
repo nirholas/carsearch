@@ -1,3 +1,4 @@
+import pLimit from 'p-limit';
 import type { Listing, SearchQuery, SourceAdapter, AdapterContext } from './core/types.js';
 import { validate, checkDistinctPrices } from './core/normalize.js';
 import { dedupe, dedupeStats, type DedupeGroup } from './core/dedupe.js';
@@ -18,11 +19,29 @@ import type { CarStore } from './store/store.js';
 
 export interface RunOptions {
   query: SearchQuery;
+  /**
+   * How many sources to crawl at once. Sources are independent hosts and the
+   * throttle in the transport layer is already per host, so running them in
+   * parallel does not make us any less polite to any individual site: it only
+   * stops a slow one holding up the rest.
+   *
+   * Bounded rather than unlimited because every browser-backed adapter holds a
+   * Chromium page, and an unbounded fan-out would exhaust memory on a small
+   * container long before it saturated the network.
+   */
+  concurrency?: number;
   store?: CarStore;
   sourceIds?: string[];
   enrich?: boolean;
   onLog?: (msg: string) => void;
 }
+
+/**
+ * Four at a time. Each browser-backed adapter holds a Chromium page, and the
+ * Cloud Run crawler job is provisioned with 4GB, which comfortably fits four
+ * concurrent pages and does not fit a dozen.
+ */
+const DEFAULT_CONCURRENCY = 4;
 
 export interface RunResult {
   listings: Listing[];
@@ -58,23 +77,36 @@ export async function run(opts: RunOptions): Promise<RunResult> {
 
   const collected: Listing[] = [];
   const failed: string[] = [];
+  const limit = pLimit(Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY));
 
-  for (const adapter of adapters) {
-    const t0 = Date.now();
-    try {
-      const rows = await adapter.search(opts.query, ctx);
-      collected.push(...rows);
-      log(`  ${adapter.source.id}: returned ${rows.length}, collected now ${collected.length}`);
-      await opts.store?.recordRun(adapter.source.id, true, rows.length, 0, Date.now() - t0);
-    } catch (e) {
-      const msg = (e as Error).message.split('\n')[0] ?? 'unknown';
-      log(`${adapter.source.id} FAILED: ${msg}`);
-      failed.push(adapter.source.id);
-      await opts.store?.recordRun(adapter.source.id, false, 0, 0, Date.now() - t0, msg);
-    }
-  }
+  /**
+   * One source failing must never abort the others. Each task resolves rather
+   * than rejects, so a blocked site costs its own results and nothing else:
+   * a crawl that returns four sources out of five is worth far more than one
+   * that returns nothing because the fifth was down.
+   */
+  await Promise.all(
+    adapters.map((adapter) =>
+      limit(async () => {
+        const t0 = Date.now();
+        try {
+          const rows = await adapter.search(opts.query, ctx);
+          collected.push(...rows);
+          log(`  ${adapter.source.id}: returned ${rows.length} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+          await opts.store?.recordRun(adapter.source.id, true, rows.length, 0, Date.now() - t0);
+        } catch (e) {
+          const msg = (e as Error).message.split('\n')[0] ?? 'unknown';
+          log(`  ${adapter.source.id} FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s: ${msg}`);
+          failed.push(adapter.source.id);
+          await opts.store?.recordRun(adapter.source.id, false, 0, 0, Date.now() - t0, msg);
+        }
+      }),
+    ),
+  );
 
+  if (process.env.CARSEARCH_TRACE) log(`  [trace] crawl finished at ${((Date.now() - started) / 1000).toFixed(1)}s`);
   const enriched = opts.enrich === false ? collected : await enrichAll(collected, opts.store);
+  if (process.env.CARSEARCH_TRACE) log(`  [trace] enrich finished at ${((Date.now() - started) / 1000).toFixed(1)}s`);
 
   const { kept, rejected } = validate(enriched);
   const integrity = checkDistinctPrices(kept);
@@ -94,6 +126,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   const rejectReasons: Record<string, number> = {};
   for (const r of rejected) rejectReasons[r.why] = (rejectReasons[r.why] ?? 0) + 1;
 
+  if (process.env.CARSEARCH_TRACE) log(`  [trace] pipeline returning at ${((Date.now() - started) / 1000).toFixed(1)}s`);
   return {
     listings: kept,
     groups,

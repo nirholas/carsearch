@@ -41,19 +41,29 @@ function hostOf(url: string): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Waits until this host is allowed another request, then reserves the slot. */
+/**
+ * Waits until this host is allowed another request.
+ *
+ * The slot is reserved BEFORE sleeping, not after. With sources crawling
+ * concurrently, two callers for the same host would otherwise both read the
+ * same `last`, both sleep the same interval, and both fire at the same instant,
+ * which is precisely the burst the throttle exists to prevent. Claiming the
+ * slot first makes the second caller queue behind the first.
+ */
 export async function waitForTurn(url: string, gapMs = DEFAULT_GAP_MS): Promise<void> {
   const host = hostOf(url);
   const now = Date.now();
-  const last = lastRequestAt.get(host) ?? 0;
 
   // A host that has just challenged us gets progressively more room.
   const strikes = consecutiveChallenges.get(host) ?? 0;
   const penalty = strikes === 0 ? 0 : Math.min(60000, gapMs * 2 ** strikes);
 
-  const readyAt = last + gapMs + penalty;
+  const last = lastRequestAt.get(host) ?? 0;
+  const readyAt = Math.max(now, last + gapMs + penalty);
+  // Reserve first so a concurrent caller schedules after this one.
+  lastRequestAt.set(host, readyAt);
+
   if (readyAt > now) await sleep(readyAt - now);
-  lastRequestAt.set(hostOf(url), Date.now());
 }
 
 export function recordChallenge(url: string): number {
