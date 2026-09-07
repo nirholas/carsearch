@@ -7,6 +7,7 @@ import { SOURCES, registryStats, ADAPTERS } from './sources/index.js';
 import { probeSources, formatProbeTable } from './probe.js';
 import { recallsFor } from './enrich/recalls.js';
 import { decodeVin } from './enrich/vpic.js';
+import { ask } from './nl/index.js';
 
 const program = new Command();
 program.name('carsearch').description('One search across every place a car is listed for sale.').version('0.1.0');
@@ -183,6 +184,49 @@ program
       console.log(`\n${c.NHTSACampaignNumber}  ${c.Component}`);
       console.log(`  ${c.Summary.slice(0, 160)}`);
     }
+  });
+
+program
+  .command('ask')
+  .description('Search in plain English, e.g. "an old g wagon" or "porsche macan under 40k"')
+  .argument('<question...>')
+  .option('--db <path>', 'sqlite path', 'data/carsearch.db')
+  .option('--parse-only', 'show how the question was understood without searching')
+  .action(async (words: string[], o: { db: string; parseOnly?: boolean }) => {
+    const text = words.join(' ');
+    const parsed = await ask(text);
+
+    console.log(`\nasked      "${text}"`);
+    console.log(`parser     ${parsed.parser}`);
+    console.log('understood');
+    for (const line of parsed.interpretation) console.log(`  - ${line}`);
+    console.log('query     ', JSON.stringify(parsed.query));
+    if (o.parseOnly) return;
+
+    const store = new Store(o.db);
+    const q = parsed.query;
+    const rows = store.search({
+      make: q.make,
+      model: q.models?.[0],
+      yearMin: q.yearMin,
+      yearMax: q.yearMax,
+      priceMin: q.priceMin,
+      priceMax: q.priceMax,
+      mileageMax: q.mileageMax,
+      bodyType: q.bodyType,
+      fuelType: q.fuelType,
+      text: q.keywords,
+      priceKinds: q.priceKinds ?? ['ask'],
+      limit: 25,
+    });
+    console.log(`\n${rows.length} matches in the index`);
+    for (const r of rows) {
+      console.log(`${money(r.price).padStart(9)}  ${String(r.mileage ?? '-').padStart(7)} mi  ${(r.title || '').slice(0, 50).padEnd(50)} ${r.sourceId}`);
+    }
+    if (rows.length === 0) {
+      console.log('The index only holds what has been crawled. Run `search` for this vehicle first.');
+    }
+    store.close();
   });
 
 program

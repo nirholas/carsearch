@@ -49,9 +49,35 @@ npx tsx src/cli.ts vin WP1AB2A56LLB33982
 # Open recall campaigns, including the do-not-park flags
 npx tsx src/cli.ts recalls --make porsche --model taycan --year 2021
 
+# Ask in plain English
+npx tsx src/cli.ts ask "an old g wagon"
+npx tsx src/cli.ts ask "what did a 2017 macan sell for"
+npx tsx src/cli.ts ask --parse-only "porsche macan under 40k with low miles"
+
 # Web UI and JSON API
 npm run serve      # http://localhost:8787
 ```
+
+## Asking in plain English
+
+The search box takes a sentence, not a filter form. "an old g wagon" resolves to a Mercedes-Benz
+G-Class from 2011 or earlier; "what did a 2017 macan sell for" switches from asking prices to
+completed sales.
+
+Parsing runs in two passes, deterministic first:
+
+1. **Pattern parser** (`src/nl/parse.ts`) handles the shape most searches take: a nickname, a model,
+   a budget, a mileage cap, a year range, a body style, an intent. No API key, no network call, no
+   latency. This is the primary, not a fallback, because paying a model round trip to read
+   "porsche macan under 40k" would be slower and worse.
+2. **Claude** (`src/nl/llm.ts`) handles what patterns cannot enumerate: "something reliable for a long
+   commute that fits a car seat". It runs only when the pattern parser found nothing or left a
+   meaningful part of the sentence unexplained. Set `ANTHROPIC_API_KEY` to enable it; without a key
+   the pattern parser answers alone and says so.
+
+Every constraint is shown back to the user. A search box that silently reinterprets the request is
+worse than one that explains itself, so "old" reports the exact year it resolved to and the parse is
+mirrored into the sidebar filters where it can be corrected.
 
 ## What is wired today
 

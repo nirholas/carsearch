@@ -10,7 +10,7 @@
 <header class="topbar">
   <a class="brand" href="/">car<span>search</span></a>
   <form id="search" class="searchbar">
-    <input id="q" name="q" type="search" placeholder="Search every source. Try: porsche macan under 40k" autocomplete="off" aria-label="Search listings">
+    <input id="q" name="q" type="search" placeholder="Ask in plain English. Try: an old g wagon, or what did a 2017 macan sell for" autocomplete="off" aria-label="Ask for a car in plain English">
     <button type="submit">Search</button>
   </form>
   <nav class="topnav">
@@ -55,6 +55,7 @@
   </aside>
 
   <section class="results" id="panel-listings">
+    <div id="understood" class="understood" hidden></div>
     <div id="summary" class="summary" hidden></div>
     <div id="comps-strip" class="comps-strip" hidden></div>
     <div id="list" class="list" aria-live="polite"></div>

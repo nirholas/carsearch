@@ -31,25 +31,6 @@ function readFilters() {
   return f;
 }
 
-/**
- * Parses the kind of thing people actually type into a search box.
- *
- * This is deliberately small and local. It handles the obvious shapes so the
- * box is useful immediately; anything it cannot parse is passed through as a
- * text match rather than silently dropped.
- */
-function parseFreeText(text) {
-  const out = {};
-  const t = text.toLowerCase();
-  const under = t.match(/under\s+\$?(\d+)\s*k?/);
-  if (under) out.priceMax = under[1].length <= 3 ? Number(under[1]) * 1000 : Number(under[1]);
-  const year = t.match(/\b(19|20)\d{2}\b/);
-  if (year) out.yearMin = Number(year[0]);
-  const miles = t.match(/under\s+(\d+)\s*k?\s*(?:miles|mi)\b/);
-  if (miles) out.mileageMax = Number(miles[1]) * (miles[1].length <= 3 ? 1000 : 1);
-  return out;
-}
-
 function badge(text, cls = '') {
   return `<span class="badge ${cls}">${text}</span>`;
 }
@@ -97,6 +78,34 @@ function card(r) {
   </article>`;
 }
 
+function renderUnderstood(data) {
+  const el = $('#understood');
+  const lines = data.understood ?? [];
+  if (!lines.length) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML =
+    '<span class="lead">Understood as</span>' +
+    lines.map((l) => `<span class="chip">${l}</span>`).join('') +
+    `<span class="parser">${data.parser}</span>`;
+}
+
+/** Mirrors a parsed question into the sidebar so it is visible and editable. */
+function syncFilters(q) {
+  if (!q) return;
+  const set = (id, v) => { const el = $('#f-' + id); if (el) el.value = v ?? ''; };
+  set('make', q.make);
+  set('model', q.models ? q.models[0] : q.model);
+  set('yearMin', q.yearMin);
+  set('yearMax', q.yearMax);
+  set('priceMin', q.priceMin);
+  set('priceMax', q.priceMax);
+  set('mileageMax', q.mileageMax);
+  const kinds = q.priceKinds ?? ['ask'];
+  $('#k-ask').checked = kinds.includes('ask');
+  $('#k-sold').checked = kinds.includes('sold');
+  $('#k-bid').checked = kinds.includes('bid');
+}
+
 function stat(k, v, n, cls = '') {
   return `<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="n">${n ?? ''}</div></div>`;
 }
@@ -126,20 +135,39 @@ async function loadComps(make, model, yearMin, yearMax) {
   }
 }
 
+/**
+ * A typed question goes to /api/ask, which parses the sentence server-side and
+ * answers it in one round trip. The sidebar filters go to /api/search. Both
+ * render identically, so the two ways of asking are the same product rather
+ * than two modes.
+ */
 async function search() {
   const list = $('#list');
   list.innerHTML = Array.from({ length: 6 }, () => '<div class="skeleton"></div>').join('');
   $('#summary').hidden = true;
+  $('#understood').hidden = true;
 
   const f = readFilters();
-  if (f.q) Object.assign(f, { ...parseFreeText(f.q), ...f.priceMax ? {} : {} });
-  const parsed = f.q ? parseFreeText(f.q) : {};
-  for (const [k, v] of Object.entries(parsed)) if (!f[k]) f[k] = v;
+  const question = $('#q').value.trim();
 
   try {
-    const res = await fetch('/api/search?' + new URLSearchParams(f));
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
+    let data;
+    if (question) {
+      const res = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: question, limit: 200 }),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      data = await res.json();
+      renderUnderstood(data);
+      // Reflect the parse into the sidebar so the user can see and adjust it.
+      syncFilters(data.query);
+    } else {
+      const res = await fetch('/api/search?' + new URLSearchParams(f));
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      data = await res.json();
+    }
 
     const s = data.stats;
     $('#summary').hidden = false;
@@ -158,7 +186,13 @@ async function search() {
     }
 
     list.innerHTML = data.results.map(card).join('');
-    loadComps(f.make || data.results[0]?.make, f.model || data.results[0]?.model, f.yearMin, f.yearMax);
+    const q = data.query ?? f;
+    loadComps(
+      q.make || data.results[0]?.make,
+      (q.models && q.models[0]) || q.model || data.results[0]?.model,
+      q.yearMin,
+      q.yearMax,
+    );
   } catch (e) {
     list.innerHTML = `<div class="state">
       <h3>Could not reach the API</h3>

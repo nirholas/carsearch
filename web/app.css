@@ -132,3 +132,18 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
 th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
 .scroll { overflow-x: auto; }
+
+/* What the question was understood to mean. Shown because a search box that
+   silently reinterprets a request is worse than one that explains itself. */
+.understood {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 11px 14px; margin-bottom: 12px;
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); background: var(--panel);
+}
+.understood .lead { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.understood .chip {
+  font-size: 12px; padding: 3px 9px; border-radius: 999px;
+  background: var(--bg); border: 1px solid var(--line); color: var(--ink);
+}
+.understood .parser { margin-left: auto; font-size: 11px; color: var(--muted); }

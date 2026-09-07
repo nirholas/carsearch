@@ -8,5 +8,12 @@ build/
 __pycache__/
 *.pyc
 .venv/
+# SQLite writes two sidecar files next to the database in WAL mode, and ignoring
+# only the .db leaves those two tracked.
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/*.sqlite
+data/probe-*.json
+data/run-*.json
+data/run-*.log

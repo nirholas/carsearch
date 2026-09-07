@@ -7,6 +7,7 @@ import { dedupe, dedupeStats } from '../core/dedupe.js';
 import { recallsFor } from '../enrich/recalls.js';
 import { run } from '../pipeline.js';
 import type { PriceKind } from '../core/types.js';
+import { ask } from '../nl/index.js';
 
 /**
  * Read API over the aggregated index.
@@ -134,6 +135,54 @@ app.get('/api/listing/:id', async (c) => {
     comps: found.make && found.model && found.year
       ? store.soldComps(found.make, found.model, found.year - 2, found.year + 2)
       : null,
+  });
+});
+
+/**
+ * Natural-language search.
+ *
+ * Parses the sentence, then answers it from the index in the same call, so the
+ * caller gets results rather than a query object it has to make a second
+ * request with. The interpretation comes back alongside the results because a
+ * search box that silently reinterprets the request is worse than one that
+ * explains itself.
+ */
+app.post('/api/ask', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { q?: string; limit?: number };
+  const text = (body.q ?? '').trim();
+  if (!text) return c.json({ error: 'q is required' }, 400);
+
+  const parsed = await ask(text);
+  const q = parsed.query;
+
+  const listings = store.search({
+    make: q.make,
+    model: q.models?.[0],
+    yearMin: q.yearMin,
+    yearMax: q.yearMax,
+    priceMin: q.priceMin,
+    priceMax: q.priceMax,
+    mileageMax: q.mileageMax,
+    bodyType: q.bodyType,
+    fuelType: q.fuelType,
+    text: q.keywords,
+    priceKinds: q.priceKinds ?? ['ask'],
+    limit: body.limit ?? 100,
+    sort: 'price',
+  });
+  const groups = dedupe(listings);
+
+  return c.json({
+    asked: text,
+    understood: parsed.interpretation,
+    parser: parsed.parser,
+    query: q,
+    stats: dedupeStats(listings, groups),
+    results: groups.map((g) => ({
+      ...g.primary,
+      daysOnMarket: store.daysOnMarket(g.primary.id),
+      alsoOn: g.sources.filter((s) => s !== g.primary.sourceId),
+    })),
   });
 });
 
