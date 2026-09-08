@@ -1,5 +1,6 @@
 import type { Listing, RejectedListing } from './types.js';
 import { loadVocabulary } from '../nl/vocabulary.js';
+import { canonicalBodyType, canonicalFuelType, canonicalColor, blankToNull } from './canonical.js';
 
 /**
  * Normalization and plausibility.
@@ -388,9 +389,38 @@ export function validate(listings: Listing[]): ValidationResult {
    * holds the make silently merges every car of that marque into one group.
    */
   const repaired = listings.map((l) => {
-    const fixed = canonicalModel(resolveModel(l.title, l.make, l.model));
-    const series = l.series?.trim() ? l.series.trim() : null;
-    return fixed === l.model && series === l.series ? l : { ...l, model: fixed, series };
+    const model = canonicalModel(resolveModel(l.title, l.make, l.model));
+    const bodyType = canonicalBodyType(l.bodyType);
+    const fuelType = canonicalFuelType(l.fuelType);
+    const exteriorColor = canonicalColor(l.exteriorColor);
+    const interiorColor = canonicalColor(l.interiorColor);
+
+    if (
+      model === l.model && bodyType === l.bodyType && fuelType === l.fuelType &&
+      exteriorColor === l.exteriorColor && interiorColor === l.interiorColor &&
+      blankToNull(l.series) === l.series && blankToNull(l.trim) === l.trim
+    ) {
+      return l;
+    }
+
+    return {
+      ...l,
+      model,
+      series: blankToNull(l.series),
+      trim: blankToNull(l.trim),
+      bodyType,
+      fuelType,
+      exteriorColor,
+      interiorColor,
+      /**
+       * The seller's own words for the paint are kept. "Uyuni White" is worth
+       * showing a buyer and useless to filter on, so the facet gets the family
+       * and the record keeps the name.
+       */
+      raw: exteriorColor !== l.exteriorColor || interiorColor !== l.interiorColor
+        ? { ...(l.raw ?? {}), exteriorColorName: l.exteriorColor, interiorColorName: l.interiorColor }
+        : l.raw,
+    };
   });
 
   const model = new PlausibilityModel();

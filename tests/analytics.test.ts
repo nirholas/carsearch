@@ -290,3 +290,48 @@ test('the EPA model match prefers the base variant, not the fastest one', async 
   assert.equal(bestModelMatch('Macan GTS Sport Edition', ['Macan', 'Macan S']), 'Macan');
   assert.equal(bestModelMatch('Cybertruck', ['Macan', 'Macan S']), null);
 });
+
+/* --------------------------------------------------- value canonicalization */
+
+test('one spelling per body type', async () => {
+  const { canonicalBodyType } = await import('../src/core/canonical.js');
+  // The index carried "SUV" and "Suv" as two values, which splits every count.
+  for (const raw of ['SUV', 'Suv', 'Sport Utility', 'Sport Utility Vehicle [SUV]/Multipurpose Vehicle [MPV]', 'Crossover']) {
+    assert.equal(canonicalBodyType(raw), 'SUV', raw);
+  }
+  assert.equal(canonicalBodyType('Cabriolet'), 'Convertible');
+  assert.equal(canonicalBodyType('Sedan/Saloon'), 'Sedan');
+  assert.equal(canonicalBodyType('Crew Cab Pickup'), 'Truck');
+  // Unknown values are tidied, never dropped.
+  assert.equal(canonicalBodyType('kombi'), 'Kombi');
+  assert.equal(canonicalBodyType('   '), null);
+});
+
+test('a petrol grade is not a fuel type', async () => {
+  const { canonicalFuelType } = await import('../src/core/canonical.js');
+  // The EPA reports "Premium" and "Regular". Those are grades of petrol, and
+  // the facet was offering them beside "Electricity" as if a buyer chose.
+  assert.equal(canonicalFuelType('Premium'), 'Gasoline');
+  assert.equal(canonicalFuelType('Regular'), 'Gasoline');
+  assert.equal(canonicalFuelType('Premium Gasoline'), 'Gasoline');
+  assert.equal(canonicalFuelType('Electricity'), 'Electric');
+  assert.equal(canonicalFuelType('Diesel'), 'Diesel');
+  // Plug-in must not be swallowed by the plain hybrid rule.
+  assert.equal(canonicalFuelType('Plug-in Hybrid'), 'Plug-in Hybrid');
+  assert.equal(canonicalFuelType('Hybrid'), 'Hybrid');
+
+  // Burns petrol AND takes a charge. Rule order alone matched "Electricity"
+  // and would have told buyers 101 cars had no engine.
+  assert.equal(canonicalFuelType('Premium and Electricity'), 'Plug-in Hybrid');
+  assert.equal(canonicalFuelType('Regular Gas and Electricity'), 'Plug-in Hybrid');
+});
+
+test('paint names reduce to a colour family', async () => {
+  const { canonicalColor } = await import('../src/core/canonical.js');
+  // Marketing names are unique per model and useless as a filter.
+  assert.equal(canonicalColor('Uyuni White'), 'White');
+  assert.equal(canonicalColor('Albert Blue'), 'Blue');
+  assert.equal(canonicalColor('Obsidian Black Metallic'), 'Black');
+  assert.equal(canonicalColor('Chalk'), 'White');
+  assert.equal(canonicalColor('GT Silver'), 'Silver');
+});
