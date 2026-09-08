@@ -5,7 +5,7 @@ import { backtestFromTrend, valueAtMileage, forecastOwnership, analyzeMarket } f
 import { makeListing } from '../src/core/listing.js';
 import type { Listing } from '../src/core/types.js';
 import { parseTransmission, parseTitleStatus, parseAccidents, parseOwners } from '../src/core/facets.js';
-import { canonicalModel, parseModel, parseMake } from '../src/core/normalize.js';
+import { canonicalModel, parseModel, parseMake, isFinancingBait, isImpossiblePriceForAge } from '../src/core/normalize.js';
 
 test('summarize reports spread as an IQR, not a range', () => {
   const s = summarize([10, 20, 30, 40, 1000]);
@@ -241,4 +241,39 @@ test('an abbreviation never matches inside a longer marque name', () => {
 test('a Range Rover is a Land Rover, not a Rover', () => {
   assert.equal(parseMake('2017 Range Rover Supercharged'), 'Land Rover');
   assert.equal(parseMake('1997 Land Rover Defender 90'), 'Land Rover');
+});
+
+test('a down payment advertised as a price is rejected', () => {
+  // Buy-here-pay-here dealers put the down payment in the price field. A broad
+  // Craigslist sweep produced 191 cars at exactly $1,500, a 2018 Mercedes
+  // among them, which no peer-group median could have caught on its own.
+  assert.equal(isFinancingBait('__ 2018 TOYOTA RAV4 __ $1500 DOWN ____COROLLA_', 1500, 2018), true);
+  assert.equal(isFinancingBait('2016 CHEVROLET CRUZE LS WE FINANCE EVERYONE NO CREDIT', 1500, 2016), true);
+  assert.equal(isFinancingBait('2019 Honda Accord $299/mo', 299, 2019), true);
+
+  // A genuinely cheap old car mentioning financing is left alone.
+  assert.equal(isFinancingBait('1994 Ford Ranger runs great, we finance', 2200, 1994), false);
+  // And a real price is never touched.
+  assert.equal(isFinancingBait('2018 Mercedes-Benz C300, financing available', 24500, 2018), false);
+  assert.equal(isFinancingBait('2017 Porsche Macan S', 34000, 2017), false);
+});
+
+test('a price impossible for the age is rejected, unless damage is disclosed', () => {
+  const y = new Date().getFullYear();
+  // Lease and payment figures posted in the price field.
+  assert.equal(isImpossiblePriceForAge('2021 Ram 1500 TRX WE FINANCE', 500, y - 5), true);
+  assert.equal(isImpossiblePriceForAge('2020 Cadillac Escalade Platinum 4x4', 537, y - 6), true);
+  assert.equal(isImpossiblePriceForAge('Tesla model y LR', 550, y - 5), true);
+
+  // A seller who admits the car is wrecked is telling the truth, and that row
+  // is real data that belongs in the index.
+  assert.equal(isImpossiblePriceForAge('2019 Honda Civic salvage title', 1200, y - 7), false);
+  assert.equal(isImpossiblePriceForAge('2000 Lexus ES300 Project Car', 500, y - 26), false);
+
+  // Genuinely old cheap cars are untouched.
+  assert.equal(isImpossiblePriceForAge('2003 Infiniti G35', 500, y - 23), false);
+  assert.equal(isImpossiblePriceForAge('1964 Corvair 700', 500, y - 62), false);
+
+  // And a normal price is never questioned.
+  assert.equal(isImpossiblePriceForAge('2017 Porsche Macan S', 34000, y - 9), false);
 });

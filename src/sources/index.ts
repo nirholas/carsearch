@@ -3,6 +3,7 @@ import { autotempest } from './autotempest.js';
 import { carmax } from './carmax.js';
 import { bringatrailer } from './bringatrailer.js';
 import { carsandbids } from './carsandbids.js';
+import { craigslist } from './craigslist.js';
 import { tesla } from './tesla.js';
 import { carscom } from './carscom.js';
 import { cargurus } from './cargurus.js';
@@ -15,9 +16,9 @@ import { cargurus } from './cargurus.js';
  * actually wired. A source moves from the registry into here when its extractor
  * has been verified against live markup, never before.
  */
-export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, bringatrailer, carsandbids];
+export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, bringatrailer, carsandbids, craigslist];
 
 export const adapterById = new Map(ADAPTERS.map((a) => [a.source.id, a]));
 
-export { autotempest, carscom, carmax, cargurus, bringatrailer, carsandbids, tesla };
+export { autotempest, carscom, carmax, cargurus, bringatrailer, carsandbids, craigslist, tesla };
 export { SOURCES, getSource, liveSources, registryStats, sourcesByStatus } from './registry.js';

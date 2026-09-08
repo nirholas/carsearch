@@ -54,6 +54,85 @@ const MAKE_ALIASES: Record<string, string> = {
 };
 
 /**
+ * Words that mean the advertised number is a financing term, not a price.
+ *
+ * Buy-here-pay-here dealers post the DOWN PAYMENT in the price field. A broad
+ * Craigslist sweep returned 191 cars at exactly $1,500 and 131 at exactly
+ * $2,000, including a 2018 Mercedes C300, because that is what they ask down.
+ *
+ * The plausibility model cannot catch these on its own: it holds a listing
+ * against the median of its own peer group, and a sweep across every make has
+ * too few peers per group to form one. But the seller says it outright in the
+ * title, which makes this the rare case where the text is better evidence than
+ * the statistics.
+ */
+const FINANCING_TERMS =
+  /\b(\$?\d[\d,]*\s*(?:down|dwn)\b|down\s*payment|buy\s*here\s*pay\s*here|bhph|we\s*finance|no\s*credit|bad\s*credit|credito|financiamiento|se\s*financia|\$?\d[\d,]*\s*(?:\/|per\s*)(?:mo|month|week|wk)\b|weekly\s*payments?|monthly\s*payments?)/i;
+
+/**
+ * True when the listed price is a financing term rather than the car's price.
+ *
+ * Requires BOTH signals: the title has to advertise financing, and the price
+ * has to be low enough that it cannot be the car. A dealer who mentions
+ * financing on a genuinely cheap car is common and must not be thrown away,
+ * so the threshold is deliberately conservative.
+ */
+export function isFinancingBait(title: string, price: number | null, year: number | null): boolean {
+  if (price === null || !title) return false;
+  if (!FINANCING_TERMS.test(title)) return false;
+
+  // The number appears in the title right next to a down-payment marker, which
+  // is the seller confirming it for us.
+  const asWritten = price.toLocaleString('en-US');
+  const nearDown = new RegExp(
+    `\\$?(?:${price}|${asWritten.replace(/,/g, ',?')})\\s*(?:down|dwn|\\/\\s*(?:mo|month|week))`,
+    'i',
+  );
+  if (nearDown.test(title)) return true;
+
+  /**
+   * Or the price is impossible for the age. A car under $3,000 that is under
+   * fifteen years old and advertised with financing is quoting a payment; a
+   * genuinely cheap old car is left alone.
+   */
+  const age = year === null ? null : new Date().getFullYear() - year;
+  return price < 3000 && age !== null && age <= 15;
+}
+
+/**
+ * Sellers admitting the car is not roadworthy.
+ *
+ * A cheap car with one of these words in the title is telling the truth, and
+ * the age floor below must never touch it: a $900 project car is real data and
+ * belongs in the index, labelled for what it is.
+ */
+const ADMITS_DAMAGE =
+  /\b(salvage|rebuilt|parts?[\s-]?(?:only|out|car)|mechanic'?s? special|not running|non[\s-]?runner|no ?title|for parts|flood|wrecked|damaged?|project|as[\s-]?is|needs? work|blown|bad (?:engine|motor|trans)|junk|scrap|shell|rolling chassis)\b/i;
+
+/**
+ * A price that cannot be this car, whatever the peer group says.
+ *
+ * The peer-group model is the better instrument and stays the primary one, but
+ * it needs five comparable listings to form a median, and a sweep across every
+ * make on a classifieds site has too few per group. That left 232 rows like a
+ * 2021 Ram TRX at $500, a 2018 Raptor at $553 and a Tesla Model Y at $550, all
+ * of them lease or payment figures posted in the price field.
+ *
+ * The thresholds are deliberately far below any real market so that the rule
+ * needs no calibration and can never be the reason a genuine bargain is hidden:
+ * a ten-year-old car under $2,500 that does not admit damage does not exist,
+ * and neither does any running car under $750.
+ */
+export function isImpossiblePriceForAge(title: string, price: number | null, year: number | null): boolean {
+  if (price === null || year === null) return false;
+  if (title && ADMITS_DAMAGE.test(title)) return false;
+  const age = new Date().getFullYear() - year;
+  if (age < 0) return false;
+  if (age <= 10 && price < 2500) return true;
+  return age <= 20 && price < 750;
+}
+
+/**
  * Bring a Trailer and similar auction sites list memorabilia alongside cars. A
  * "BMW i8 Full-Scale Display Model" sold for $2,700 and parsed as an i8, which
  * then dragged the i8 median down by thousands.
@@ -325,6 +404,8 @@ export function validate(listings: Listing[]): ValidationResult {
       !l.title ? 'missing title'
       : isNonVehicle(l.title) ? 'not a vehicle (memorabilia or parts)'
       : l.price === null ? 'missing price'
+      : isFinancingBait(l.title, l.price, l.year) ? 'price is a down payment or monthly figure, not the car'
+      : isImpossiblePriceForAge(l.title, l.price, l.year) ? 'price is impossible for a car this age and no damage is disclosed'
       : l.vin !== null && !isValidVin(l.vin) ? 'malformed VIN'
       : model.check(l);
 
