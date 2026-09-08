@@ -1,56 +1,98 @@
 # Roadmap
 
-Ordered by value per unit of work, not by ease.
+Ordered by value per unit of work, not by ease. Updated 2026-09-08.
+
+## Where things stand
+
+15 adapters wired against 98 catalogued sources; 18 sources contribute rows.
+The index holds roughly 7,300 listings and 1,900 completed sales.
+
+```
+autotempest  bringatrailer  craigslist  carscom  copart  cargurus  carvana
+carmax  dupontregistry  carsandbids  autoscout24  pcarmarket  hagertymarketplace
+finnno  blocket
+```
 
 ## Next
 
-**More adapters, starting with the ones already probed reachable.** CarGurus (browser, 33 prices and a
-JSON-LD block) and PCARMARKET (browser, 43KB of rendered text) both answered a real browser on
-2026-09-07 and have no adapter yet. Copart needs its internal JSON endpoint found, since both
-transports render nothing useful.
+### Owner count and accident history
 
-**Concurrency in the pipeline.** Sources run serially today. They are independent hosts and the
-throttle is already per host, so wiring `p-limit` into the adapter loop turns a nine-minute two-model
-crawl into roughly the slowest single source. This is the blocker on a nightly crawl across many
-models.
+**The largest remaining product gap, and the one users ask for by name.**
+`titleStatus` is at 14% and climbing, entirely on the back of Copart, which
+states a brand on every lot. `owners` sits at 1% and `accidents` at 0%.
 
-**Vehicle vocabulary from vPIC.** The catalogue endpoint returns 403 to a plain fetch from a
-datacenter address, so it needs routing through the two-transport fetcher like everything else. Until
-then the parser runs on the seed vocabulary in `src/nl/vocabulary.ts`.
+What has been established, so the next attempt does not repeat it:
 
-## Vehicle history per VIN
+- **The data is in no search-results payload.** Not on CarGurus tiles, not in
+  Cars.com card JSON, not in Carvana's flight payload. Checked directly.
+- **It is not in detail-page HTML either.** A TLS fetch of a CarGurus, Carvana
+  or Bring a Trailer detail page contains no history phrasing at all; those
+  sections render client side.
+- **Driving detail pages through the browser transport hung.** Four pages, one
+  per source, with an eight-second settle and a scroll, produced no output in
+  eighteen minutes and left no Chromium process alive. Before building a
+  pipeline on this, find out whether the hang is a challenge-retry loop, since
+  the symptom matches one, and cap the work per page accordingly.
+- **Private sellers volunteer it in the title**, which is why Craigslist alone
+  supplies most of the current `owners` coverage. The extraction for that text
+  already exists in `enrich/text-facets.ts`.
 
-The product gap: a listing shows price and mileage but nothing about title brands, accident records,
-odometer rollback or owner count. Nothing in the index currently answers "is this specific car sound",
-and that is the question a buyer most wants answered before travelling to see it.
+The honest options, in order of expected value:
 
-**Free and already wired:** NHTSA vPIC decodes the VIN to year, make, model, trim and factory series,
-and NHTSA recalls returns open campaigns including the do-not-drive and park-outside flags. That is
-real safety data no incumbent aggregator surfaces next to a listing.
+1. **A bounded browser pass over shortlisted cars only**, never the whole index.
+   A user looking at twenty results can afford twenty page loads; 7,300 cannot.
+2. **NMVTIS**, the federal title database, through an approved provider at
+   roughly $10 a report. The only route that yields a verified answer rather
+   than a seller's claim. Pre-filter with the free signals so it is only spent
+   on a car someone is about to travel to see.
+3. **More salvage-auction coverage.** It does not answer "how many owners", but
+   it is the only free source that answers "what is the title".
 
-**Not covered by those:** title brands, accident history, odometer readings over time, service records
-and owner count. Those come from three routes, in ascending cost:
+### More sources
 
-1. **NMVTIS** (`vehiclehistory.gov`), the federal title and brand database. Approved data providers
-   resell single reports for a few dollars, far below a consumer-facing report, and the title-brand
-   half is the part that actually stops a bad purchase. This is the right first integration.
-2. **VinAudit / ClearVIN / EpicVIN**, which layer auction photo history and market value on top of
-   NMVTIS at a similar price point, with real APIs.
-3. **Carfax or AutoCheck partner APIs**, which have the deepest service-record coverage and the
-   consumer brand recognition, and are priced accordingly.
+The tooling makes each roughly an afternoon rather than a week: see
+[wiring-a-source.md](wiring-a-source.md). Highest value remaining:
 
-**On the "add it as my vehicle" shortcut:** registering a VIN you do not own in a consumer app to pull
-a free report means asserting ownership you do not have, which breaks that service's terms and would
-not survive being done at any scale. It is also unnecessary. NMVTIS is the same underlying title data,
-is officially licensed for resale, costs a few dollars per report, and can be shown to users without
-the integration being a liability. Route the feature through NMVTIS first and treat a Carfax partner
-agreement as the paid upgrade.
+- **eBay Motors** has a documented, free Browse API and needs only a developer
+  key. Best value per hour of anything left.
+- **Collecting Cars** returns current bid, sold price and buy-now as separate
+  fields plus mileage and transmission, the best payload found anywhere. Every
+  request shape tried returns 401; the likely cause is a scoped Typesense key
+  naming a collection other than the guessed one.
+- **Mecum, Barrett-Jackson, RM Sotheby's, Bonhams** are all completed-sale
+  sources, which is the scarcest input the index has.
+- **Facebook Marketplace** is the largest private-party pool in the country and
+  is login-walled. An honest gap until proxies or a paid actor are budgeted.
 
-## Later
+Confirmed blocked to all three transports, with evidence in the registry so
+nobody re-runs the experiment: Autotrader (a 200 carrying a reCAPTCHA shell,
+which is the most deceptive refusal there is), Hemmings, TrueCar, EchoPark,
+Carsforsale, Autolist, iSeeCars, Car & Classic, GSA Auctions, mobile.de,
+Auto Trader UK, La Centrale, Carsales AU, Encar, SgCarMart, Webmotors.
 
-- Facebook Marketplace and Craigslist, which hold most US private-party supply and both punish
-  automation. Needs residential proxies budgeted, or the gap stated plainly in the UI.
-- eBay Browse API, the only large free documented listings API in the category, including completed
-  listings. Needs an app key.
-- Daily scheduled crawl, which is what turns price history from a schema into a dataset.
-- Battery health for used EVs via Recurrent, which is to an EV what mileage is to a combustion car.
+### Depth over breadth
+
+**Price history only accumulates while the clock runs, and cannot be
+backfilled.** Every day the crawler does not run is a day of days-on-market and
+price-drop data that no competitor can re-scrape and neither can we. The
+crawler image is built and pushed; its Cloud Run Job and schedule are not
+created. That is the highest-value unglamorous task left.
+
+**Completed sales are the scarcest input.** Every statistic on the market
+dashboard rests on them, and several are currently withheld for want of a
+sample: the 911's depreciation curve is refused because seven sales spanning a
+1972 911E and a 1986 Turbo cannot separate mileage from variant. Bring a
+Trailer alone publishes years of results, and one G-Class crawl took that model
+from 18 asking prices to 119 completed sales spanning eleven years.
+
+## Known gaps in what is built
+
+- **`openRecall`, `batteryKwh` and `dealerRating` have no coverage.** The recall
+  enrichment exists and is not wired into the backfill.
+- **Hagerty is thin**: ten to fifteen live lots from the landing page, and no
+  URL found that lists completed sales, which is the half worth having.
+- **Cross-currency comparison is prevented, not solved.** Search and the market
+  dashboard scope to one currency, which is correct but means a European
+  listing never appears beside a US one. Fixing it properly needs dated
+  exchange rates stored beside each price, so a conversion is reproducible
+  rather than a snapshot of today.
