@@ -585,8 +585,9 @@ async function runDashboard() {
     yearMax: $('#d-yearMax').value.trim(),
     mileage: $('#d-mileage').value.trim(),
   };
-  await loadDashboard(scope);
-  renderValuation(scope);
+  const report = await loadDashboard(scope);
+  // A null report means a newer load superseded this one; leave the page to it.
+  if (report) renderValuation(scope, report);
 }
 
 /**
@@ -596,13 +597,10 @@ async function runDashboard() {
  * mileage sits far outside the range the curve was fitted over, and the answer
  * there is to say so, not to extrapolate a number a buyer might act on.
  */
-async function renderValuation(scope) {
+function renderValuation(scope, d) {
   const el = $('#valuation');
   if (!scope.mileage) { el.hidden = true; return; }
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(scope)) if (v) params.set(k, v);
-  try {
-    const d = await (await fetch('/api/market?' + params)).json();
+  {
     if (!d.valuation) {
       el.hidden = false;
       el.innerHTML = `<div class="val-empty">No completed sale for this model carries a mileage, so there is
@@ -636,9 +634,6 @@ async function renderValuation(scope) {
         </div>`).join('')}</div>
         <p class="hint">${esc(o.basis)}</p>
       </div>` : ''}`;
-  } catch (e) {
-    el.hidden = false;
-    el.innerHTML = `<div class="val-empty">Could not compute a valuation: ${esc(e.message)}</div>`;
   }
 }
 

@@ -23,6 +23,18 @@ const pct = (n, digits = 1) => (n === null || n === undefined ? '-' : `${n > 0 ?
 
 const charts = [];
 
+/**
+ * Sequence number for dashboard loads.
+ *
+ * Two loads can be in flight at once: the route change fires one from whatever
+ * the form happens to hold, and the user submitting a different model fires
+ * another. Responses do not come back in the order they were sent, so without
+ * this the slower first request paints over the newer one and the page shows
+ * one model's charts beside another model's valuation. Every number on screen
+ * is real; the combination is a lie.
+ */
+let loadSeq = 0;
+
 function tokens() {
   const s = getComputedStyle(document.documentElement);
   const v = (name, fallback) => (s.getPropertyValue(name) || fallback).trim();
@@ -297,6 +309,9 @@ function emptyState(scope) {
 }
 
 export async function loadDashboard(scope) {
+  const mine = ++loadSeq;
+  const stale = () => mine !== loadSeq;
+
   const root = $('#dash-body');
   destroyCharts();
   root.innerHTML = '<div class="skeleton lg"></div><div class="skeleton lg"></div>';
@@ -310,13 +325,18 @@ export async function loadDashboard(scope) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     report = await res.json();
   } catch (e) {
+    if (stale()) return null;
     root.innerHTML = `<div class="state"><h3>Could not load the market data</h3><p>${esc(e.message)}</p></div>`;
-    return;
+    return null;
   }
+
+  // A newer request has already been sent, so this answer is about a car the
+  // user has moved on from. Drop it rather than paint it.
+  if (stale()) return null;
 
   if (report.counts.ask + report.counts.sold + report.counts.bid === 0) {
     root.innerHTML = emptyState(report.scope);
-    return;
+    return report;
   }
 
   const t = tokens();
@@ -382,6 +402,11 @@ export async function loadDashboard(scope) {
   if ($('#c-trend')) charts.push(drawTrend($('#c-trend'), report, t));
   if ($('#c-year')) charts.push(drawByYear($('#c-year'), report, t));
   if ($('#c-backtest')) charts.push(drawBacktest($('#c-backtest'), report, t));
+
+  // Returned so the caller renders the valuation from the SAME report the
+  // charts were drawn from, rather than issuing a second request that can
+  // resolve against different data.
+  return report;
 }
 
 /** Repaint on a theme change, since the palette is read once at draw time. */
