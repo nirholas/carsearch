@@ -277,3 +277,16 @@ test('a price impossible for the age is rejected, unless damage is disclosed', (
   // And a normal price is never questioned.
   assert.equal(isImpossiblePriceForAge('2017 Porsche Macan S', 34000, y - 9), false);
 });
+
+test('the EPA model match prefers the base variant, not the fastest one', async () => {
+  const { bestModelMatch } = await import('../src/enrich/epa.js');
+  const porsche911 = ['911 Carrera', '911 Carrera 4', '911 Carrera 4 GTS', '911 Turbo', '911 Turbo S'];
+  // A listing that says "911" and nothing more is a base car. Matching the
+  // longest name would attribute Turbo figures to every 911 in the index.
+  assert.equal(bestModelMatch('911', porsche911), '911 Carrera');
+  assert.equal(bestModelMatch('911 Turbo', porsche911), '911 Turbo');
+  assert.equal(bestModelMatch('Macan', ['Macan', 'Macan S', 'Macan Turbo']), 'Macan');
+  // Ours is more specific than anything they list: fall back to their closest.
+  assert.equal(bestModelMatch('Macan GTS Sport Edition', ['Macan', 'Macan S']), 'Macan');
+  assert.equal(bestModelMatch('Cybertruck', ['Macan', 'Macan S']), null);
+});

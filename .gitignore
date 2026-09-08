@@ -20,3 +20,6 @@ data/run-*.log
 
 # Playwright screenshots from UI verification runs.
 data/ui-*.png
+
+# Cached EPA lookups: derived data, regenerable, and large.
+data/epa-cache.json
