@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { canonicalBodyType, canonicalFuelType, canonicalColor, blankToNull } from '../src/core/canonical.js';
+import { canonicalMake } from '../src/core/normalize.js';
 
 /**
  * Brings values already in the index up to one spelling each.
@@ -13,11 +14,15 @@ import { canonicalBodyType, canonicalFuelType, canonicalColor, blankToNull } fro
  */
 
 const dryRun = process.argv.includes('--dry-run');
+const verbose = process.argv.includes('--verbose');
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL is required');
 const pool = new Pool({ connectionString: url });
 
 const COLUMNS: [string, (v: string | null) => string | null][] = [
+  // Make matters more than the rest: it is the first thing every search filters
+  // on, so a marque split across three spellings quietly hides most of itself.
+  ['make', canonicalMake],
   ['body_type', canonicalBodyType],
   ['fuel_type', canonicalFuelType],
   ['exterior_color', canonicalColor],
@@ -36,7 +41,7 @@ for (const [column, fn] of COLUMNS) {
 
   const affected = moves.reduce((sum, m) => sum + m.n, 0);
   console.log(`${column.padEnd(16)} ${rows.length} distinct -> ${new Set(rows.map((r) => fn(r.value))).size} canonical, ${affected} rows change`);
-  for (const m of moves.sort((a, b) => b.n - a.n).slice(0, 5)) {
+  for (const m of moves.sort((a, b) => b.n - a.n).slice(0, verbose ? moves.length : 5)) {
     console.log(`    ${String(m.n).padStart(5)}  "${m.from}" -> ${m.to === null ? 'null' : `"${m.to}"`}`);
   }
 

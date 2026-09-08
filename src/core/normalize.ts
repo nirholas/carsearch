@@ -277,6 +277,32 @@ export function parseModel(title: string, make: string | null): string | null {
  * designations (911, GT-R, MX-5) keep their own casing because title-casing
  * them produces nonsense.
  */
+/**
+ * One spelling per make.
+ *
+ * `canonicalModel` has existed since the 147-Ferrari incident, but the MAKE was
+ * never run through anything: whatever spelling a source wrote went straight to
+ * the column. Copart shouts (`PORSCHE`), most sites title-case (`Porsche`), and
+ * a few lowercase it, so one marque arrived as three facet values holding 2153,
+ * 182 and 5 cars. To a reader that looks like one make; to a filter it is three,
+ * and picking the obvious one silently discards the other 187 cars.
+ *
+ * Unlike `parseMake` this never reads a title. It takes a make a source already
+ * stated and fixes only its spelling, and an unrecognised marque is returned
+ * trimmed rather than dropped: a make we have no entry for is still the truth
+ * about that car.
+ */
+const MAKE_BY_KEY = new Map<string, string>([
+  ...MAKES.map((m) => [m.toLowerCase().replace(/[^a-z0-9]/g, ''), m] as const),
+  ...Object.entries(MAKE_ALIASES).map(([a, m]) => [a.toLowerCase().replace(/[^a-z0-9]/g, ''), m] as const),
+]);
+
+export function canonicalMake(make: string | null): string | null {
+  const m = make?.trim();
+  if (!m) return null;
+  return MAKE_BY_KEY.get(m.toLowerCase().replace(/[^a-z0-9]/g, '')) ?? m;
+}
+
 export function canonicalModel(model: string | null): string | null {
   const m = model?.trim();
   if (!m) return null;
@@ -402,14 +428,15 @@ export function validate(listings: Listing[]): ValidationResult {
    * holds the make silently merges every car of that marque into one group.
    */
   const repaired = listings.map((l) => {
-    const model = canonicalModel(resolveModel(l.title, l.make, l.model));
+    const make = canonicalMake(l.make);
+    const model = canonicalModel(resolveModel(l.title, make, l.model));
     const bodyType = canonicalBodyType(l.bodyType);
     const fuelType = canonicalFuelType(l.fuelType);
     const exteriorColor = canonicalColor(l.exteriorColor);
     const interiorColor = canonicalColor(l.interiorColor);
 
     if (
-      model === l.model && bodyType === l.bodyType && fuelType === l.fuelType &&
+      make === l.make && model === l.model && bodyType === l.bodyType && fuelType === l.fuelType &&
       exteriorColor === l.exteriorColor && interiorColor === l.interiorColor &&
       blankToNull(l.series) === l.series && blankToNull(l.trim) === l.trim
     ) {
@@ -418,6 +445,7 @@ export function validate(listings: Listing[]): ValidationResult {
 
     return {
       ...l,
+      make,
       model,
       series: blankToNull(l.series),
       trim: blankToNull(l.trim),

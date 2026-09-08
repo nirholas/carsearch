@@ -146,3 +146,27 @@ test('recency and stale-listing intents', () => {
 test('a query with no sort intent leaves the sort unset', () => {
   assert.equal(parseQuery('porsche macan under 40k').query.sort, undefined);
 });
+
+/**
+ * One spelling per make. Copart shouts, most sites title-case, a few lowercase,
+ * and the column took whatever it was given: one marque arrived as three facet
+ * values holding 2153, 182 and 5 cars, so filtering to the obvious one silently
+ * discarded 187.
+ */
+test('a make is canonicalised to one spelling regardless of how a source wrote it', async () => {
+  const { canonicalMake } = await import('../src/core/normalize.js');
+  for (const written of ['PORSCHE', 'porsche', 'Porsche', ' Porsche ']) {
+    assert.equal(canonicalMake(written), 'Porsche');
+  }
+  assert.equal(canonicalMake('MERCEDES-BENZ'), 'Mercedes-Benz');
+  assert.equal(canonicalMake('mercedes benz'), 'Mercedes-Benz');
+  assert.equal(canonicalMake('landrover'), 'Land Rover');
+  assert.equal(canonicalMake('ROLLS ROYCE'), 'Rolls-Royce');
+  assert.equal(canonicalMake('chevy'), 'Chevrolet');
+
+  // A marque with no entry is still the truth about that car, so it survives
+  // trimmed rather than being dropped.
+  assert.equal(canonicalMake('  Hispano-Suiza '), 'Hispano-Suiza');
+  assert.equal(canonicalMake(null), null);
+  assert.equal(canonicalMake('   '), null);
+});
