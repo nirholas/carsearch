@@ -124,7 +124,7 @@ export const SOURCES: Source[] = [
       status: 'live', transport: 'browser', priceKinds: ['sold', 'bid'],
       notes: 'Tested: 200 to Chromium. Modern enthusiast cars, clean markup.' }),
   s({ id: 'pcarmarket', name: 'PCARMARKET', homepage: 'https://www.pcarmarket.com', category: 'auction-enthusiast',
-      priceKinds: ['sold', 'bid'], notes: 'Probed 2026-09-08. Reachable with a Chrome TLS fingerprint (403 to plain fetch). /auction/ is a blog index, not the listings page, and the site is server-rendered with no JSON payload, so this one needs HTML parsing against the right URL.' }),
+      priceKinds: ['sold', 'bid'], notes: 'Wired 2026-09-08 over the TLS transport; the listings ride in the page payload, which is why an endpoint hunt found nothing and the first URL tried (/auction/) turned out to be their blog. /auctions/ gives live bids and /results/ gives completed sales, and a lot counts as sold only if it ended AND met its reserve. They also auction parts and memorabilia, which the non-vehicle filter catches.', status: 'live', transport: 'fetch'}),
   s({ id: 'hemmings', name: 'Hemmings', homepage: 'https://www.hemmings.com', category: 'auction-enthusiast',
       status: 'blocked', transport: 'blocked', priceKinds: ['ask', 'bid'], notes: 'Re-measured 2026-09-08 across all three transports: 403 to plain fetch, to Chromium, and to both Chrome and Firefox TLS fingerprints. Genuinely blocked to what we have. Field notes elsewhere report a Safari profile succeeding, which impit does not offer.' }),
   s({ id: 'classiccars', name: 'ClassicCars.com', homepage: 'https://classiccars.com', category: 'auction-enthusiast' }),
