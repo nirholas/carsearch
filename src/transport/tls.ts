@@ -59,6 +59,22 @@ const PROFILES: TlsProfile[] = ['chrome', 'firefox'];
 
 const winners = new Map<string, TlsProfile>();
 
+/**
+ * How long to wait before retrying a refusal.
+ *
+ * On several of these hosts a 403 is a rate limit wearing a refusal's clothes.
+ * Carvana returned 403 for /cars/mercedes-benz and 200 with twenty-one cars for
+ * the same URL a minute later, which sent a crawl looking for a wrong slug that
+ * was never wrong. A refusal that clears on its own is not a refusal, and
+ * treating every 403 as final loses whole makes at random.
+ */
+const RETRY_DELAYS_MS = [1500, 5000];
+
+const sleep = (ms: number) => new Promise<void>((r) => {
+  const t = setTimeout(r, ms);
+  t.unref?.();
+});
+
 async function clientFor(profile: TlsProfile, opts: Partial<ImpitOptions> = {}): Promise<ImpitType> {
   const Impit = await loadImpit();
   return new Impit({
@@ -114,7 +130,17 @@ export async function fetchWithTls(
   let last: TlsResponse | null = null;
   let lastError: Error | null = null;
 
-  for (const profile of order) {
+  // Each profile, then each profile again after a pause. A host that refuses
+  // both profiles instantly is refusing us; one that clears after a wait was
+  // throttling.
+  const attempts: (TlsProfile | number)[] = [...order, ...RETRY_DELAYS_MS.flatMap((d) => [d, ...order])];
+
+  for (const step of attempts) {
+    if (typeof step === 'number') {
+      await sleep(step);
+      continue;
+    }
+    const profile = step;
     try {
       const client = await clientFor(profile, clientOpts);
       const res = await client.fetch(url, {
