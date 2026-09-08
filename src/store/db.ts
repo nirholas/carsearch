@@ -66,6 +66,19 @@ export class Store {
         .prepare('INSERT OR IGNORE INTO price_points (listing_id, observed_at, price) VALUES (?, ?, ?)')
         .run(l.id, now, l.price);
     }
+
+    /**
+     * Dated prices the source published for days before we ever saw the car.
+     * Seeded only on first insert, so a purge of bad points is not silently
+     * undone by the next crawl.
+     */
+    if (!existing && l.priceHistory?.length) {
+      const seed = this.db.prepare(
+        'INSERT OR IGNORE INTO price_points (listing_id, observed_at, price) VALUES (?, ?, ?)',
+      );
+      for (const point of l.priceHistory) seed.run(l.id, point.observedAt, point.price);
+    }
+
     return { inserted: !existing, priceChanged };
   }
 

@@ -43,7 +43,10 @@ program
   .argument('[sources...]', 'specific source ids, or omit for all non-planned sources')
   .option('--json <path>', 'write full results to a JSON file')
   .action(async (ids: string[], o: { json?: string }) => {
-    console.log('Probing with both transports. Plain fetch and a real browser disagree in both directions.\n');
+    console.log(
+      'Probing all three transports. Plain fetch, a real browser and a Chrome TLS fingerprint\n' +
+        'disagree in every direction, and the TLS leg runs only once the cheaper two have failed.\n',
+    );
     const results = await probeSources(ids);
     console.log(formatProbeTable(results));
     const drifted = results.filter((r) => r.drifted);

@@ -17,36 +17,52 @@ finnno  blocket
 
 ### Owner count and accident history
 
-**The largest remaining product gap, and the one users ask for by name.**
-`titleStatus` is at 14% and climbing, entirely on the back of Copart, which
-states a brand on every lot. `owners` sits at 1% and `accidents` at 0%.
+**Largely solved on 2026-09-08 by wiring Kelley Blue Book.** Every KBB record
+carries a `vhrPreview` history-flag set on the search page itself, so the data
+arrives with the listing rather than needing a per-car lookup. On the first real
+crawl, 308 of 311 McLarens carried accident data and 116 carried an owner count,
+against `owners` at 1% and `accidents` at 0% across every other source combined.
+See [sources.md](sources.md#why-kelley-blue-book-is-the-most-valuable-source-here)
+for exactly what each flag is allowed to assert.
 
-What has been established, so the next attempt does not repeat it:
+Two limits are worth stating plainly, because both are permanent properties of
+the data rather than gaps to close:
 
-- **The data is in no search-results payload.** Not on CarGurus tiles, not in
-  Cars.com card JSON, not in Carvana's flight payload. Checked directly.
-- **It is not in detail-page HTML either.** A TLS fetch of a CarGurus, Carvana
-  or Bring a Trailer detail page contains no history phrasing at all; those
-  sections render client side.
-- **Driving detail pages through the browser transport hung.** Four pages, one
-  per source, with an eight-second settle and a scroll, produced no output in
-  eighteen minutes and left no Chromium process alive. Before building a
-  pipeline on this, find out whether the hang is a challenge-retry loop, since
-  the symptom matches one, and cap the work per page accordingly.
-- **Private sellers volunteer it in the title**, which is why Craigslist alone
-  supplies most of the current `owners` coverage. The extraction for that text
-  already exists in `enrich/text-facets.ts`.
+- **`NO_ONE_OWNER` gives no count.** It says more than one owner and stops there,
+  so it yields null rather than a fabricated 2. Same for `ACCIDENTS_REPORTED`,
+  which is a boolean with no number behind it.
+- **`NO_SALVAGE_TITLE` is not a clean title.** It leaves rebuilt, flood and lemon
+  open, and is deliberately not mapped to `titleStatus`. `titleStatus` therefore
+  still climbs mainly on Copart, which states a real brand on every lot.
 
-The honest options, in order of expected value:
+What remains, in order of expected value:
 
-1. **A bounded browser pass over shortlisted cars only**, never the whole index.
-   A user looking at twenty results can afford twenty page loads; 7,300 cannot.
+1. **Run the KBB pass across more of the market.** `scripts/kbb-index.sh` does
+   this per make. Coverage on these fields is now a function of how much of the
+   index has been through it, which is a crawl-time problem, not a research one.
 2. **NMVTIS**, the federal title database, through an approved provider at
-   roughly $10 a report. The only route that yields a verified answer rather
-   than a seller's claim. Pre-filter with the free signals so it is only spent
-   on a car someone is about to travel to see.
-3. **More salvage-auction coverage.** It does not answer "how many owners", but
-   it is the only free source that answers "what is the title".
+   roughly $10 a report. Still the only route to a verified answer rather than a
+   dealer's report summary, and the only one that resolves an exact owner count.
+   Pre-filter with the free signals so it is spent only on a car someone is about
+   to travel to see.
+3. **A bounded browser pass over shortlisted cars only**, never the whole index,
+   for sources KBB does not carry. Note the prior finding: four detail pages with
+   an eight-second settle produced no output in eighteen minutes and left no
+   Chromium alive. Find out whether that hang is a challenge-retry loop before
+   building anything on it.
+
+Private sellers still volunteer owner counts in listing text, which is why
+Craigslist supplies the private-party share of this coverage; that extraction
+lives in `enrich/text-facets.ts`.
+
+### Price history
+
+**Also largely addressed by KBB.** Price points could previously only be
+accumulated forward, one crawl at a time, so every listing started with an empty
+history. KBB publishes a dated series going back to listing day on roughly a
+third of records, and `Listing.priceHistory` seeds those into `price_points` on
+first insert. Everything else still fills in only by observing a car twice, which
+is what the crawler job is for.
 
 ### More sources
 
@@ -54,7 +70,9 @@ The tooling makes each roughly an afternoon rather than a week: see
 [wiring-a-source.md](wiring-a-source.md). Highest value remaining:
 
 - **eBay Motors** has a documented, free Browse API and needs only a developer
-  key. Best value per hour of anything left.
+  key. Best value per hour of anything left. It already reaches the index
+  second-hand through AutoTempest, which attributes listings to their origin
+  site; the API would add completed-sale data that the passthrough does not.
 - **Collecting Cars** returns current bid, sold price and buy-now as separate
   fields plus mileage and transmission, the best payload found anywhere. Every
   request shape tried returns 401; the likely cause is a scoped Typesense key
@@ -63,6 +81,10 @@ The tooling makes each roughly an afternoon rather than a week: see
   sources, which is the scarcest input the index has.
 - **Facebook Marketplace** is the largest private-party pool in the country and
   is login-walled. An honest gap until proxies or a paid actor are budgeted.
+
+Autotrader specifically is no longer worth attacking. It is Cox Automotive, and
+so is Kelley Blue Book: KBB serves its images from `atcimages.kbb.com` and is
+largely the same dealer inventory, through a door that is open.
 
 Confirmed blocked to all three transports, with evidence in the registry so
 nobody re-runs the experiment: Autotrader (a 200 carrying a reCAPTCHA shell,

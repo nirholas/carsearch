@@ -86,6 +86,21 @@ export class PostgresStore implements CarStore {
           );
           if (priceChanged) priceChanges++;
         }
+
+        /**
+         * Dated prices the source published for days before we ever saw the
+         * car. Seeded only on first insert: re-seeding on every crawl would
+         * re-add points a purge had deliberately removed, and the primary key
+         * already makes a repeat harmless rather than useful.
+         */
+        if (!existed && l.priceHistory?.length) {
+          for (const point of l.priceHistory) {
+            await client.query(
+              'INSERT INTO price_points (listing_id, observed_at, price) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+              [l.id, point.observedAt, point.price],
+            );
+          }
+        }
       }
       await client.query('COMMIT');
     } catch (e) {

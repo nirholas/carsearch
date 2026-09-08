@@ -37,6 +37,14 @@ export type Transport =
   | 'fetch'
   /** A real browser is required. Expensive but defeats most bot defenses. */
   | 'browser'
+  /**
+   * Only a plain request wearing a browser's TLS fingerprint gets through.
+   *
+   * This is its own transport, not a flavour of fetch. Several CDNs refuse on
+   * the TLS ClientHello before a header is read, which is why sources exist
+   * that answer 403 to a plain fetch AND to a real Chromium, and 200 here.
+   */
+  | 'tls'
   /** Either works. Prefer fetch. */
   | 'either'
   /** Neither works today. */
@@ -174,6 +182,17 @@ export interface Listing {
   /** Equipment the listing advertised, kept so a feature can be searched for. */
   options: string[] | null;
 
+  /**
+   * Asking prices this source published for dates BEFORE we ever saw the car.
+   *
+   * Not a stored column: the store seeds these into price_points on insert and
+   * reads them back from there like any other observation. Almost every source
+   * leaves this null, because price history normally has to be accumulated by
+   * observing the same listing twice over weeks. KBB publishes the whole series
+   * retrospectively, which is the only reason the field exists.
+   */
+  priceHistory?: { observedAt: string; price: number }[] | null;
+
   /** Anything source-specific that does not fit the model, kept rather than discarded. */
   raw?: Record<string, unknown>;
 }
@@ -185,7 +204,13 @@ export interface RejectedListing extends Partial<Listing> {
   title?: string;
 }
 
-/** One observation of a listing's price at a point in time. Cannot be backfilled. */
+/**
+ * One observation of a listing's price at a point in time.
+ *
+ * Normally these can only be accumulated going forward, one crawl at a time.
+ * The exception is a source that publishes its own dated price history, which
+ * arrives on `Listing.priceHistory` and is seeded on insert.
+ */
 export interface PricePoint {
   listingId: string;
   observedAt: string;

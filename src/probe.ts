@@ -1,5 +1,6 @@
 import { SOURCES } from './sources/registry.js';
 import { probe as browserProbe } from './transport/browser.js';
+import { fetchWithTls, tlsAvailable } from './transport/tls.js';
 import type { Source, Transport } from './core/types.js';
 
 /**
@@ -11,17 +12,21 @@ import type { Source, Transport } from './core/types.js';
  * no matching cars. Running this on a schedule turns that into a visible
  * green-to-red transition.
  *
- * It tests BOTH transports on every source, because the two disagree in both
- * directions and neither predicts the other. That finding is the reason the
- * fetcher has two transports at all.
+ * It tests ALL THREE transports on every source, because they disagree in
+ * every direction and none predicts the others. A plain fetch and a real
+ * Chromium can both be refused by a site that answers 200 to a request wearing
+ * a Chrome TLS fingerprint, which is how Carvana, PCARMARKET and Kelley Blue
+ * Book were reached. That finding is the reason the fetcher has three.
  */
 
 export interface ProbeResult {
   sourceId: string;
   name: string;
   declared: Transport;
-  fetch: { status: number | string; blocked: boolean; bytes: number; priceHits: number; jsonLd: number; isJson: boolean };
+  fetch: { status: number | string; blocked: boolean; bytes: number; priceHits: number; jsonLd: number; isJson: boolean; payload: number };
   browser: { status: number | string; blocked: boolean; priceHits: number; jsonLd: number; textLength: number };
+  /** Null when impit's native binding is absent, which is not the same as blocked. */
+  tls: { status: number | string; blocked: boolean; bytes: number; priceHits: number; jsonLd: number; isJson: boolean; payload: number } | null;
   /** What the transport SHOULD be declared as, given what we just measured. */
   observed: Transport;
   drifted: boolean;
@@ -34,8 +39,45 @@ const FETCH_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
+/**
+ * Markers for a whole search response embedded in the page rather than fetched.
+ *
+ * Three of the live sources work this way (KBB's __NEXT_DATA__, CarGurus'
+ * __remixContext, Carvana's React Flight payload), and the prober could not see
+ * any of it: a page carrying 100 cars as JSON has no JSON-LD, and its prices are
+ * unformatted integers rather than the $00,000 the price counter looks for. Such
+ * a page measured as no signal at all, which is indistinguishable from a block.
+ */
+const PAYLOAD_MARKER = /__NEXT_DATA__|__remixContext|self\.__next_f|__INITIAL_STATE__|__NUXT__/g;
+
 const BLOCK_TEXT =
   /access denied|are you a human|unusual traffic|verify you are|pardon our interruption|captcha|cf-browser-verification|just a moment/i;
+
+/**
+ * The same measurement as probeFetch, over a browser TLS handshake.
+ *
+ * Returns null rather than a blocked result when impit is unavailable, because
+ * "we could not test this" and "this refused us" must never look alike in a
+ * table whose whole job is to show a green-to-red transition.
+ */
+async function probeTls(url: string): Promise<ProbeResult['tls']> {
+  if (!(await tlsAvailable())) return null;
+  try {
+    const res = await fetchWithTls(url, {}, { browser: 'chrome' });
+    const body = res.body;
+    return {
+      status: res.status,
+      blocked: res.status !== 200 || BLOCK_TEXT.test(body.slice(0, 4000)),
+      bytes: body.length,
+      priceHits: (body.match(/\$\d{2},\d{3}/g) ?? []).length,
+      jsonLd: (body.match(/application\/ld\+json/g) ?? []).length,
+      isJson: looksLikeJson(null, body),
+      payload: (body.match(PAYLOAD_MARKER) ?? []).length,
+    };
+  } catch (e) {
+    return { status: (e as Error).name === 'TimeoutError' ? 'TIMEOUT' : 'ERR', blocked: true, bytes: 0, priceHits: 0, jsonLd: 0, isJson: false, payload: 0 };
+  }
+}
 
 async function probeFetch(url: string): Promise<ProbeResult['fetch']> {
   try {
@@ -48,6 +90,7 @@ async function probeFetch(url: string): Promise<ProbeResult['fetch']> {
       priceHits: (body.match(/\$\d{2},\d{3}/g) ?? []).length,
       jsonLd: (body.match(/application\/ld\+json/g) ?? []).length,
       isJson: looksLikeJson(res.headers.get('content-type'), body),
+      payload: (body.match(PAYLOAD_MARKER) ?? []).length,
     };
   } catch (e) {
     return {
@@ -57,6 +100,7 @@ async function probeFetch(url: string): Promise<ProbeResult['fetch']> {
       priceHits: 0,
       jsonLd: 0,
       isJson: false,
+      payload: 0,
     };
   }
 }
@@ -81,6 +125,7 @@ function probeUrl(s: Source): string {
     carscom:
       'https://www.cars.com/shopping/results/?stock_type=used&makes[]=porsche&maximum_distance=all&zip=92101&list_price_max=40000',
     cargurus: 'https://www.cargurus.com/Cars/l-Used-Porsche-San-Diego-m48_L2362',
+    kbb: 'https://www.kbb.com/cars-for-sale/used/porsche/911?numRecords=25',
     autotrader: 'https://www.autotrader.com/cars-for-sale/porsche?searchRadius=0&maxPrice=40000',
     bringatrailer: 'https://bringatrailer.com/porsche/macan/',
     carsandbids: 'https://carsandbids.com/past-auctions/?q=porsche',
@@ -122,8 +167,9 @@ function probeUrl(s: Source): string {
  */
 function fetchHasSignal(r: ProbeResult['fetch'], isApi: boolean): boolean {
   if (r.blocked) return false;
-  if (isApi) return r.isJson;
-  return r.priceHits >= 3 || r.jsonLd >= 1;
+  // An embedded payload is the response, just delivered inside the document.
+  if (isApi) return r.isJson || r.payload > 0;
+  return r.priceHits >= 3 || r.jsonLd >= 1 || r.payload > 0;
 }
 
 function browserHasSignal(r: ProbeResult['browser'], isApi: boolean): boolean {
@@ -156,6 +202,14 @@ function observedTransport(r: Omit<ProbeResult, 'observed' | 'drifted'>, isApi: 
   if (fetchOk && browserOk) return 'either';
   if (fetchOk) return 'fetch';
   if (browserOk) return 'browser';
+
+  /**
+   * Only reached when neither of the cheap-to-declare transports worked. A TLS
+   * success here is the whole reason this leg exists: it is the difference
+   * between a source being unreachable and a source being reachable by exactly
+   * one method. An untested TLS leg (null) leaves the verdict at blocked.
+   */
+  if (r.tls && fetchHasSignal(r.tls, isApi)) return 'tls';
   return 'blocked';
 }
 
@@ -167,11 +221,14 @@ export async function probeSources(ids?: string[]): Promise<ProbeResult[]> {
     const url = probeUrl(s);
     const f = await probeFetch(url);
     const b = await browserProbe(url);
+    // Only worth the extra request when the cheap transports already failed.
+    const t = f.blocked && (b.blocked || b.status !== 200) ? await probeTls(url) : null;
     const partial = {
       sourceId: s.id,
       name: s.name,
       declared: s.transport,
       fetch: f,
+      tls: t,
       browser: {
         status: b.status,
         blocked: b.blocked || b.status !== 200,
@@ -189,14 +246,19 @@ export async function probeSources(ids?: string[]): Promise<ProbeResult[]> {
 
 export function formatProbeTable(results: ProbeResult[]): string {
   const lines = [
-    'source          declared   fetch                browser                          observed   drift',
-    '--------------- ---------- -------------------- -------------------------------- ---------- -----',
+    'source          declared   fetch                browser                          tls                  observed   drift',
+    '--------------- ---------- -------------------- -------------------------------- -------------------- ---------- -----',
   ];
   for (const r of results) {
     const f = `${String(r.fetch.status).padEnd(5)}${r.fetch.blocked ? 'BLK' : 'ok '} $${String(r.fetch.priceHits).padStart(3)} ld${String(r.fetch.jsonLd).padStart(2)}`;
     const b = `${String(r.browser.status).padEnd(6)}${r.browser.blocked ? 'BLOCK' : 'ok   '} $${String(r.browser.priceHits).padStart(3)} ld${String(r.browser.jsonLd).padStart(3)} len${String(r.browser.textLength).padStart(7)}`;
+    // Blank, not "blocked": the leg only runs once the cheap transports fail,
+    // and "we did not test this" must never read as "this refused us".
+    const t = r.tls
+      ? `${String(r.tls.status).padEnd(5)}${r.tls.blocked ? 'BLK' : 'ok '} $${String(r.tls.priceHits).padStart(3)} ld${String(r.tls.jsonLd).padStart(2)} p${String(r.tls.payload).padStart(2)}`
+      : '-';
     lines.push(
-      `${r.sourceId.padEnd(15)} ${r.declared.padEnd(10)} ${f.padEnd(20)} ${b.padEnd(32)} ${r.observed.padEnd(10)} ${r.drifted ? 'DRIFT' : ''}`,
+      `${r.sourceId.padEnd(15)} ${r.declared.padEnd(10)} ${f.padEnd(20)} ${b.padEnd(32)} ${t.padEnd(20)} ${r.observed.padEnd(10)} ${r.drifted ? 'DRIFT' : ''}`,
     );
   }
   return lines.join('\n');

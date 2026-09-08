@@ -23,3 +23,5 @@ data/ui-*.png
 
 # Cached EPA lookups: derived data, regenerable, and large.
 data/epa-cache.json
+data/*.png
+data/*-cache.json

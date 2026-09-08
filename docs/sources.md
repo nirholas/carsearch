@@ -24,7 +24,7 @@ scrapers for the enthusiast auctions (small volume, high value, weak defenses), 
 | Cars.com | cars.com | Dealer + private party. | Hard |
 | CarGurus | cargurus.com | Deal ratings, price history, owns Autolist + CarOffer. | Hard |
 | Edmunds | edmunds.com | Listings + appraisal. Public API retired 2021. | HTML |
-| Kelley Blue Book | kbb.com | Listings mirror Autotrader; KBB is the valuation brand. | HTML |
+| Kelley Blue Book | kbb.com | **Wired.** The same Cox inventory Autotrader refuses us, plus history flags and dated price history on every record. See below. | TLS + `__NEXT_DATA__` |
 | TrueCar | truecar.com | Price-to-market, dealer network. | HTML |
 | CarsDirect | carsdirect.com | Lead-gen + listings. | HTML |
 | Autolist | autolist.com | CarGurus-owned aggregator, mobile-first. | HTML |
@@ -40,6 +40,62 @@ scrapers for the enthusiast auctions (small volume, high value, weak defenses), 
 | CarSoup | carsoup.com | Regional (upper Midwest). | HTML |
 | Autotrader Classics | classics.autotrader.com | Collector arm. | HTML |
 | CarBuzz / Motor1 marketplaces | various | Syndicated listing widgets, usually Marketcheck under the hood. | n/a |
+
+### Why Kelley Blue Book is the most valuable source here
+
+Two fields arrive with a KBB search result that no other site in this document
+publishes on a listings page.
+
+**`vhrPreview`** is a vehicle-history flag set, present on 37 of the first 37
+records sampled and on 308 of 311 McLarens in the first real crawl:
+
+```
+["NO_SALVAGE_TITLE", "NO_ACCIDENTS_REPORTED", "ONE_OWNER"]
+```
+
+Before this source, `owners` sat near 1% coverage and `accidents` at 0%, because
+that data lives behind a paid history report everywhere else. It is now the best
+covered history field in the index.
+
+The flags are read literally and never stretched:
+
+| Flag | Becomes | Deliberately does NOT become |
+|---|---|---|
+| `ONE_OWNER` | `owners = 1` | |
+| `NO_ONE_OWNER` | nothing | `owners = 2`. More than one, count unpublished. |
+| `NO_ACCIDENTS_REPORTED` | `accidents = 0`, `accidentFree = true` | |
+| `ACCIDENTS_REPORTED` | `accidentFree = false` | `accidents = 1`. Reported, count unpublished. |
+| `NO_SALVAGE_TITLE` | nothing | `titleStatus = clean`. Not salvage still leaves rebuilt, flood and lemon open. |
+| `FREE_REPORT` | nothing | It is a marketing badge, not a fact about the car. |
+
+**`pricingHistory`** is a dated series of asking prices going back to the day the
+car was listed, on roughly a third of records:
+
+```
+07.28.2026  $459,800
+07.30.2026  $461,023
+08.04.2026  $457,023
+```
+
+Everywhere else, price history can only be accumulated forward by observing the
+same listing on two different crawls, so it starts empty and fills in over weeks.
+These are seeded into `price_points` on first insert and read back like any other
+observation. The final `Price Today` entry is dropped: the crawler records the
+current price itself, with a timestamp it can vouch for.
+
+Also carried: KBB's own Fair Purchase Price and this car's distance from it. Kept
+in `raw`, never ranked on, for the same reason CarGurus' deal rating is. Holding
+both lets a listing read "below KBB, still above what these actually sell for".
+
+**The trap.** An unrecognised make or model slug does not 404. `/cars-for-sale/
+used/norfolkkangaroo` answers **200 with a page of Ford Mustangs and Kia
+Sorentos**. An adapter that trusted the URL it requested would file all of them
+under the make it asked for, which is exactly how 159 Mustangs once entered this
+index labelled `G-Class`. Every record is therefore read for its own make, and
+off-make rows are dropped and counted, so a rotted slug reports zero rather than
+quietly succeeding.
+
+Build the index from it with `scripts/kbb-index.sh` (`MAKES="Porsche BMW" ./scripts/kbb-index.sh`).
 
 ## 2. United States: online retailers, "buy it online" and instant-offer buyers
 
