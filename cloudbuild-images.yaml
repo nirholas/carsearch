@@ -1,0 +1,46 @@
+# Builds and pushes both images without deploying anything.
+#
+# Building and releasing are separated because they fail for different reasons
+# and at different times. An image can be built and verified long before the
+# database it will connect to exists, and deploying a service that cannot reach
+# a database produces a crash loop rather than a useful error.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build-web
+    args:
+      - build
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/web:$SHORT_SHA
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/web:latest
+      - --file=Dockerfile
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: build-crawler
+    args:
+      - build
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/crawler:$SHORT_SHA
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/crawler:latest
+      - --file=Dockerfile.crawler
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-web
+    args: [push, --all-tags, $_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/web]
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-crawler
+    args: [push, --all-tags, $_REGION-docker.pkg.dev/$PROJECT_ID/carsearch/crawler]
+
+substitutions:
+  _REGION: us-central1
+
+# The project has no default compute service account, so a build that does not
+# name one fails at submit with "Unknown service account".
+serviceAccount: projects/aerial-vehicle-466722-p5/serviceAccounts/carsearch-build@aerial-vehicle-466722-p5.iam.gserviceaccount.com
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+  diskSizeGb: 100
+
+timeout: 2400s

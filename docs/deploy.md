@@ -21,6 +21,25 @@ filesystem that dataset silently resets on every deploy, and nothing appears to 
 works, it has just forgotten the only thing a competitor cannot re-scrape. That is the whole reason
 for Postgres.
 
+## What already exists in aerial-vehicle-466722-p5
+
+Provisioned on 2026-09-08, so these steps do not need repeating:
+
+- Artifact Registry repository `carsearch` in `us-central1`.
+- Service account `carsearch-build@`, with `logging.logWriter`,
+  `artifactregistry.writer` and `storage.objectViewer`, plus `objectViewer` and
+  `objectCreator` granted directly on the `_cloudbuild` source bucket. The
+  project-level grant alone was not sufficient: the submit failed with
+  `storage.objects.get denied` until the bucket binding was added.
+- Both images built and pushed: `carsearch/web` and `carsearch/crawler`.
+
+Two failure modes worth knowing, because neither error names its real cause.
+A build with no `serviceAccount:` pinned fails with `Unknown service account`,
+which reads as a problem with the caller's own credentials rather than with the
+config; this project has no default compute service account. And a service
+account without the bucket-level binding fails at `could not resolve source`,
+which reads as a missing tarball.
+
 ## One-time setup
 
 ```bash
