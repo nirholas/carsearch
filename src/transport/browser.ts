@@ -84,16 +84,39 @@ async function launchContext(): Promise<BrowserContext> {
  * the retired one is closed once its own pages have finished, with a cap so a
  * hung page cannot leak it forever.
  */
+/**
+ * Contexts retired by a challenge that are still draining.
+ *
+ * Tracked rather than forgotten so that shutdown can close them. The drain loop
+ * used to be a detached async function nobody held a handle to, and its
+ * one-second timers kept the Node event loop alive for up to a minute after the
+ * crawl had finished and printed its results. Three challenge retries meant
+ * three of those loops, and the symptom was a run that reported success in 88
+ * seconds and then sat there until something killed it, which reads like a
+ * hung crawl rather than a shutdown bug.
+ */
+const draining = new Set<BrowserContext>();
+
 export async function resetContext(): Promise<void> {
   const retired = context;
   context = null;
   if (!retired) return;
+  draining.add(retired);
 
   void (async () => {
     for (let i = 0; i < 60; i++) {
-      if (retired.pages().length === 0) break;
-      await new Promise((r) => setTimeout(r, 1000));
+      if (!draining.has(retired) || retired.pages().length === 0) break;
+      /**
+       * unref so a pending drain never holds the process open. The wait is a
+       * courtesy to pages still in flight, not a reason for the program to
+       * outlive its own work.
+       */
+      await new Promise<void>((r) => {
+        const t = setTimeout(r, 1000);
+        t.unref?.();
+      });
     }
+    draining.delete(retired);
     await retired.close().catch(() => {});
   })();
 }
@@ -101,6 +124,10 @@ export async function resetContext(): Promise<void> {
 export async function closeBrowser(): Promise<void> {
   // A launch that is still in flight must finish before we can close what it made.
   if (contextPromise) await contextPromise.catch(() => {});
+  // Retired contexts first: their drain loops watch this set and stop early.
+  const retired = [...draining];
+  draining.clear();
+  await Promise.all(retired.map((c) => c.close().catch(() => {})));
   await context?.close().catch(() => {});
   await browser?.close().catch(() => {});
   context = null;
@@ -129,6 +156,8 @@ export async function evaluateInPage<T>(url: string, fn: () => T, opts: Evaluate
       return result;
     } catch (e) {
       lastError = e as Error;
+      // A missing page will still be missing after a session reset.
+      if (e instanceof NotFoundError) throw e;
       if (!(e instanceof ChallengedError)) throw e;
       recordChallenge(url);
       /**
@@ -141,6 +170,11 @@ export async function evaluateInPage<T>(url: string, fn: () => T, opts: Evaluate
     }
   }
   throw lastError ?? new Error(`failed to evaluate ${url}`);
+}
+
+/** The page is not there. Distinct from a block, and never worth retrying. */
+export class NotFoundError extends Error {
+  readonly notFound = true;
 }
 
 async function evaluateOnce<T>(url: string, fn: () => T, opts: EvaluateOptions = {}): Promise<T> {
@@ -158,7 +192,23 @@ async function evaluateOnce<T>(url: string, fn: () => T, opts: EvaluateOptions =
   const ctx = await getContext();
   const page = await ctx.newPage();
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+
+    /**
+     * A 404 is not a block, and conflating the two is expensive.
+     *
+     * Bring a Trailer files the G-Class under "gelandewagen", so the derived
+     * URL 404s. The challenge detector saw a page with no listings and reported
+     * "challenged", which sent the crawler through three session resets and a
+     * ninety-second retry loop before announcing that a site we can reach
+     * perfectly well was blocking us. Reading the status first turns that into
+     * an immediate, accurate answer the caller can act on.
+     */
+    const status = response?.status() ?? 0;
+    if (status === 404 || status === 410) {
+      throw new NotFoundError(`${status} at ${url}`);
+    }
+
     await page.waitForTimeout(waitMs);
 
     /**

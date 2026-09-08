@@ -19,6 +19,14 @@ const MAKES = [
   'Plymouth', 'Polestar', 'Pontiac', 'Porsche', 'Ram', 'Renault', 'Rivian', 'Rolls-Royce', 'Saab',
   'Saturn', 'Scion', 'Seat', 'Skoda', 'Smart', 'Subaru', 'Suzuki', 'Tesla', 'Toyota', 'Vauxhall',
   'Volkswagen', 'Volvo',
+  // The classic and enthusiast marques the auction sources actually sell. Their
+  // absence did not read as a gap: a title naming one of them simply fell
+  // through to whatever make the row already carried, which is how a Shelby
+  // Mustang ended up filed as a Mercedes.
+  'AMC', 'Austin', 'Austin-Healey', 'Datsun', 'DeLorean', 'Delahaye', 'Duesenberg', 'Eagle',
+  'Facel Vega', 'Hudson', 'International', 'Iso', 'Jensen', 'Lancia', 'Lotus', 'Marcos', 'MG',
+  'Morgan', 'Nash', 'Packard', 'Panhard', 'Pierce-Arrow', 'Reliant', 'Riley', 'Shelby',
+  'Studebaker', 'Sunbeam', 'Talbot', 'Triumph', 'TVR', 'Willys',
 ];
 
 /** Aliases people and sites actually type. */
@@ -36,6 +44,13 @@ const MAKE_ALIASES: Record<string, string> = {
   'g-wagon': 'Mercedes-Benz',
   gwagon: 'Mercedes-Benz',
   'g wagen': 'Mercedes-Benz',
+  // Steyr-Daimler-Puch built the G-Wagen and sold it under its own badge. A
+  // Puch 230GE is a G-Class, and filing it separately splits the model.
+  puch: 'Mercedes-Benz',
+  // A Range Rover is a Land Rover. The bare marque "Rover" is deliberately not
+  // in MAKES: it is vanishingly rare next to Range Rover, and listing it there
+  // made every Range Rover a Rover.
+  'range rover': 'Land Rover',
 };
 
 /**
@@ -56,16 +71,38 @@ export function parseYear(title: string): number | null {
   return y >= 1950 && y <= next ? y : null;
 }
 
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Whole-word match, so an abbreviation cannot match inside a longer word. */
+function mentions(text: string, term: string): boolean {
+  return new RegExp(`(?:^|[^a-z0-9])${escapeRe(term.toLowerCase())}(?:[^a-z0-9]|$)`).test(text);
+}
+
+/**
+ * Reads the make from a title.
+ *
+ * Two rules, both learned from wrong output:
+ *
+ * Full make names are tested BEFORE aliases. An alias is an abbreviation, and
+ * an abbreviation must never beat the real name of a different marque.
+ *
+ * Matching is whole-word. `includes('merc')` matched "Mercury", so every
+ * Mercury in the index was filed as a Mercedes-Benz, and a 1968 Mercury Cougar
+ * came back in a search for G-Wagens.
+ */
 export function parseMake(title: string): string | null {
   const t = title.toLowerCase();
-  for (const [alias, make] of Object.entries(MAKE_ALIASES)) {
-    if (t.includes(alias)) return make;
-  }
-  // Longest match first so "Land Rover" wins over a bare token and
-  // "Mercedes-Benz" is not shadowed by a partial.
+
+  // Longest first so "Land Rover" wins over a bare token and "Austin-Healey"
+  // is not shadowed by "Austin".
   const sorted = [...MAKES].sort((a, b) => b.length - a.length);
   for (const make of sorted) {
-    if (t.includes(make.toLowerCase())) return make;
+    if (mentions(t, make)) return make;
+  }
+
+  const aliases = Object.entries(MAKE_ALIASES).sort((a, b) => b[0].length - a[0].length);
+  for (const [alias, make] of aliases) {
+    if (mentions(t, alias)) return make;
   }
   return null;
 }
@@ -107,8 +144,19 @@ export function parseModel(title: string, make: string | null): string | null {
     if (hit) return hit;
   }
 
-  // Fall back to the word after the make, minus a leading year.
-  const stripped = title.replace(/^\s*(19|20)\d{2}\s+/, '');
+  /**
+   * Fall back to the word after the make.
+   *
+   * Everything up to and including the model year is dropped, not just a
+   * LEADING year: enthusiast auction titles put the story first, so
+   * "29-Years-Owned 1994 Acura NSX 5-Speed" would otherwise yield a model of
+   * "29-Years-Owned", and "Vantage-Specification 1974 Aston Martin V8" a model
+   * of "Vantage-Specification".
+   */
+  const yearAt = title.match(/\b(19|20)\d{2}(?:\.\d)?\b/);
+  const stripped = yearAt
+    ? title.slice(yearAt.index! + yearAt[0].length).trim()
+    : title.replace(/^\s*(19|20)\d{2}\s+/, '');
   const afterMake = makeLower && stripped.toLowerCase().startsWith(makeLower)
     ? stripped.slice(makeLower.length).trim()
     : stripped;

@@ -1,8 +1,8 @@
 import type { Listing, SearchQuery, SourceAdapter } from '../core/types.js';
 import { makeListing, type ListingDraft } from '../core/listing.js';
 import { getSource } from './registry.js';
-import { evaluateInPage } from '../transport/browser.js';
-import { parseYear, parseMake } from '../core/normalize.js';
+import { evaluateInPage, NotFoundError } from '../transport/browser.js';
+import { parseYear, parseMake, parseModel } from '../core/normalize.js';
 
 /**
  * Bring a Trailer, for completed sale prices.
@@ -58,12 +58,34 @@ const EXTRACT = (): RawSale[] =>
     })
     .filter((x): x is RawSale => x !== null);
 
-/** BaT organizes by make/model path rather than by query string. */
-function paths(query: SearchQuery): string[] {
-  const make = (query.make ?? '').toLowerCase().replace(/\s+/g, '-');
+const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+/**
+ * BaT organizes by make/model path rather than by query string.
+ *
+ * Its slugs are its own, not the manufacturer's: the G-Class lives at
+ * `/mercedes-benz/gelandewagen/`, and the derived `/mercedes-benz/g-class/`
+ * is a 404. Rather than carry a slug table that rots, each model gets its
+ * canonical path first and BaT's own search as a fallback, which resolves any
+ * name their catalogue answers to.
+ */
+function candidates(query: SearchQuery): { label: string; model: string | null; urls: string[] }[] {
+  const make = slug(query.make ?? '');
   if (!make) return [];
-  if (!query.models?.length) return [make];
-  return query.models.map((m) => `${make}/${m.toLowerCase().replace(/\s+/g, '-')}`);
+  if (!query.models?.length) {
+    return [{ label: make, model: null, urls: [`https://bringatrailer.com/${make}/`] }];
+  }
+  return query.models.map((m) => ({
+    label: slug(m),
+    // The name the caller asked for, not BaT's slug for it. Storing
+    // "gelandewagen" would make the row unfindable by the model everyone types.
+    model: m,
+    urls: [
+      `https://bringatrailer.com/${make}/${slug(m)}/`,
+      // Their search covers the models whose slug we cannot derive.
+      `https://bringatrailer.com/auctions/results/?search=${encodeURIComponent(`${query.make} ${m}`)}`,
+    ],
+  }));
 }
 
 /** "09/04/2026" to an ISO date, so every source stores dates the same way. */
@@ -80,15 +102,62 @@ export const bringatrailer: SourceAdapter = {
     const now = new Date().toISOString();
     const out = new Map<string, ListingDraft>();
 
-    for (const path of paths(query)) {
-      const url = `https://bringatrailer.com/${path}/`;
-      try {
-        const rows = await evaluateInPage(url, EXTRACT, {
-          waitMs: 3500,
-          // BaT pages results behind a "Show More" control rather than infinite scroll.
-          expandSelector: 'button:has-text("Show More"), a:has-text("Show More")',
-          maxExpands: 8,
-        });
+    for (const candidate of candidates(query)) {
+      let rows: Awaited<ReturnType<typeof EXTRACT>> = [];
+      let usedUrl: string | null = null;
+
+      for (const url of candidate.urls) {
+        try {
+          rows = await evaluateInPage(url, EXTRACT, {
+            waitMs: 3500,
+            // BaT pages results behind a "Show More" control, not infinite scroll.
+            expandSelector: 'button:has-text("Show More"), a:has-text("Show More")',
+            maxExpands: 8,
+          });
+          usedUrl = url;
+          // An empty model page is a real answer; only a missing one falls through.
+          if (rows.length > 0) break;
+        } catch (e) {
+          if (e instanceof NotFoundError) {
+            ctx.log(`bringatrailer ${candidate.label}: no page at ${url}, trying search`);
+            continue;
+          }
+          ctx.log(`bringatrailer ${candidate.label} FAILED: ${(e as Error).message.split('\n')[0]}`);
+          break;
+        }
+      }
+
+      if (usedUrl === null) {
+        ctx.log(`bringatrailer ${candidate.label}: no reachable page`);
+        continue;
+      }
+
+      /**
+       * A model page is scoped by its URL; the search page is not.
+       *
+       * BaT's `/auctions/results/?search=` ignores the term and serves the
+       * general results feed, so the fallback returned 159 Mustangs, Corvettes
+       * and an NSX, every one of which was then labelled with the model that
+       * had been asked for. A page of unrelated cars wearing the requested
+       * model is far worse than an empty result, so the fallback has to prove
+       * it was actually filtered before anything it returns is believed.
+       */
+      const viaSearch = usedUrl.includes('/auctions/results/');
+      if (viaSearch && query.make) {
+        const wanted = query.make.toLowerCase();
+        const onTopic = rows.filter((r) => (r.title ?? '').toLowerCase().includes(wanted));
+        if (onTopic.length < rows.length / 2) {
+          ctx.log(
+            `bringatrailer ${candidate.label}: search returned ${rows.length} rows but only ` +
+            `${onTopic.length} are ${query.make}, so it ignored the query. Discarding.`,
+          );
+          continue;
+        }
+        rows = onTopic;
+      }
+
+      const path = candidate.label;
+      {
 
         for (const r of rows) {
           const id = `bringatrailer:${r.url}`;
@@ -101,7 +170,12 @@ export const bringatrailer: SourceAdapter = {
             title: r.title,
             year: parseYear(r.title),
             make: parseMake(r.title) ?? query.make ?? null,
-            model: path.split('/')[1] ?? null,
+            /**
+             * The title wins over what was asked for. Stamping the requested
+             * model onto every row is how a search that quietly returned the
+             * wrong cars becomes wrong DATA rather than a visible miss.
+             */
+            model: parseModel(r.title, parseMake(r.title) ?? query.make ?? null) ?? candidate.model,
             trim: null,
             series: null,
             vin: null,
@@ -126,8 +200,6 @@ export const bringatrailer: SourceAdapter = {
         const distinct = new Set(rows.map((r) => r.price)).size;
         const suspect = distinct <= 1 && rows.length > 1 ? '  <-- SUSPECT, check the extractor' : '';
         ctx.log(`bringatrailer ${path.padEnd(20)} ${String(rows.length).padStart(3)} sold, ${distinct} distinct prices${suspect}`);
-      } catch (e) {
-        ctx.log(`bringatrailer ${path} FAILED: ${(e as Error).message.split('\n')[0]}`);
       }
     }
 

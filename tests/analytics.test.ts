@@ -5,7 +5,7 @@ import { backtestFromTrend, valueAtMileage, forecastOwnership, analyzeMarket } f
 import { makeListing } from '../src/core/listing.js';
 import type { Listing } from '../src/core/types.js';
 import { parseTransmission, parseTitleStatus, parseAccidents, parseOwners } from '../src/core/facets.js';
-import { canonicalModel } from '../src/core/normalize.js';
+import { canonicalModel, parseModel, parseMake } from '../src/core/normalize.js';
 
 test('summarize reports spread as an IQR, not a range', () => {
   const s = summarize([10, 20, 30, 40, 1000]);
@@ -213,4 +213,32 @@ test('one spelling per model, but alphanumeric designations keep theirs', () => 
   assert.equal(canonicalModel('911'), '911');
   assert.equal(canonicalModel('MX-5 Miata'), 'MX-5 Miata');
   assert.equal(canonicalModel('  '), null);
+});
+
+test('a model is read after the year, not from the start of the title', () => {
+  // Auction titles put the story first. Taking the leading token gave models
+  // like "29-Years-Owned" and "Vantage-Specification".
+  assert.equal(parseModel('29-Years-Owned 1994 Acura NSX 5-Speed', 'Acura'), 'NSX');
+  assert.equal(parseModel('Vantage-Specification 1974 Aston Martin V8 Series 3', 'Aston Martin'), 'V8');
+  assert.equal(parseModel('302-Powered 1966 Ford Mustang Pickup Conversion', 'Ford'), 'Mustang');
+  assert.equal(parseModel('196-Mile Albert Blue 2024 Porsche 911 S/T', 'Porsche'), '911');
+  assert.equal(parseModel('2017 Porsche Macan S', 'Porsche'), 'Macan');
+});
+
+test('an abbreviation never matches inside a longer marque name', () => {
+  // includes('merc') matched "Mercury", so every Mercury was filed as a
+  // Mercedes-Benz and a 1968 Cougar came back in a search for G-Wagens.
+  assert.equal(parseMake('30-Years-Owned 1968 Mercury Cougar 7-Litre GT-E'), 'Mercury');
+  assert.equal(parseMake('1968 Shelby Mustang GT500 Fastback'), 'Shelby');
+  assert.equal(parseMake('2017 Mercedes-Benz G550'), 'Mercedes-Benz');
+  assert.equal(parseMake('merc 300SL'), 'Mercedes-Benz', 'the alias still works on its own');
+  // Steyr-Daimler-Puch built the G-Wagen; filing it separately splits the model.
+  assert.equal(parseMake('1993 Puch 230GE'), 'Mercedes-Benz');
+  assert.equal(parseMake('1972 Datsun 240Z'), 'Datsun');
+  assert.equal(parseMake('1961 Austin-Healey 3000'), 'Austin-Healey');
+});
+
+test('a Range Rover is a Land Rover, not a Rover', () => {
+  assert.equal(parseMake('2017 Range Rover Supercharged'), 'Land Rover');
+  assert.equal(parseMake('1997 Land Rover Defender 90'), 'Land Rover');
 });
