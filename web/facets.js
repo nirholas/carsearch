@@ -169,6 +169,15 @@ export async function loadFacets(container, scope, onChange) {
   const params = new URLSearchParams();
   if (scope?.make) params.set('make', scope.make);
   if (scope?.model) params.set('model', scope.model);
+  /**
+   * Coverage must be counted over the same rows the search will return.
+   *
+   * Without the price kinds, the salvage chip read "19" and clicking it
+   * returned nothing: those nineteen are auction lots carrying a bid, and the
+   * search defaults to asking prices. A count that a click cannot reproduce is
+   * worse than no count, because it reads as a broken filter.
+   */
+  if (scope?.priceKinds) params.set('priceKinds', scope.priceKinds);
   container.innerHTML = '<div class="skeleton sm"></div><div class="skeleton sm"></div>';
   try {
     const d = await (await fetch('/api/facets?' + params)).json();

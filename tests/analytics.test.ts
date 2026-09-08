@@ -417,3 +417,38 @@ test('a kilometre reading is converted, not stored as miles', async () => {
   assert.equal(q.unitCode, 'KMT');
   assert.equal(Math.round(q.value * 0.621371), 12987);
 });
+
+test('a depreciation curve that slopes the wrong way is not reported as depreciation', async () => {
+  const { fitDepreciation } = await import('../src/analytics/stats.js');
+  // Seven real 911 sales fitted at r2 0.045 with a positive slope, and the
+  // dashboard rendered it as "value lost per 10,000 miles: -$4,921". Mileage
+  // explains almost none of what separates a 1972 911E from a 1986 Turbo.
+  const real = [
+    { mileage: 25000, price: 39250 }, { mileage: 15302, price: 58250 },
+    { mileage: 5514, price: 65000 }, { mileage: 23000, price: 84000 },
+    { mileage: 92319, price: 122500 }, { mileage: 43000, price: 178000 },
+    { mileage: 14000, price: 311000 },
+  ];
+  const curve = fitDepreciation(real)!;
+  assert.equal(curve.supported, false);
+  assert.match(curve.unsupportedReason!, /rises with mileage/);
+
+  // A genuine depreciation curve still reports normally.
+  const clean = Array.from({ length: 12 }, (_, i) => ({ mileage: i * 10_000, price: 50_000 * 0.9 ** i }));
+  const good = fitDepreciation(clean)!;
+  assert.equal(good.supported, true);
+  assert.equal(good.unsupportedReason, null);
+});
+
+test('an unsupported curve cannot value a car or forecast ownership', async () => {
+  const { fitDepreciation } = await import('../src/analytics/stats.js');
+  const { valueAtMileage, forecastOwnership } = await import('../src/analytics/market.js');
+  const curve = fitDepreciation([
+    { mileage: 25000, price: 39250 }, { mileage: 92319, price: 122500 },
+    { mileage: 14000, price: 311000 }, { mileage: 43000, price: 178000 },
+  ])!;
+  const v = valueAtMileage(curve, 40_000)!;
+  assert.equal(v.confidence, 'none');
+  assert.match(v.basis, /no usable curve/);
+  assert.equal(forecastOwnership(curve, 40_000), null);
+});

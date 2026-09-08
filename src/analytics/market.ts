@@ -310,6 +310,19 @@ export function backtestFromTrend(trend: Trend): Backtest {
  */
 export function valueAtMileage(curve: DepreciationCurve | null, mileage: number): Valuation | null {
   if (!curve) return null;
+  /**
+   * A curve the data does not support cannot value a car. Returning a number
+   * from a fit that slopes the wrong way would put a confident price on a
+   * relationship that is not there.
+   */
+  if (!curve.supported) {
+    return {
+      price: 0,
+      extrapolatedBy: 0,
+      confidence: 'none',
+      basis: `no usable curve: ${curve.unsupportedReason ?? 'the fit is not supported by the data'}`,
+    };
+  }
   const price = Math.exp(curve.intercept + curve.slope * mileage);
   const extrapolatedBy =
     mileage < curve.xMin ? curve.xMin - mileage : mileage > curve.xMax ? mileage - curve.xMax : 0;
@@ -342,7 +355,9 @@ export function forecastOwnership(
   milesPerYear = 10_000,
   years = 5,
 ): OwnershipForecast | null {
-  if (!curve) return null;
+  // Same gate: a forecast built on an unsupported curve is a made-up number
+  // with a table around it.
+  if (!curve || !curve.supported) return null;
   const value = (m: number) => Math.exp(curve.intercept + curve.slope * m);
 
   const rows: OwnershipForecast['years'] = [];

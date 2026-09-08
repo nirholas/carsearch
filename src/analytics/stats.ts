@@ -146,6 +146,20 @@ export function linearFit(points: { x: number; y: number }[]): Fit | null {
   };
 }
 
+/**
+ * Below this, a price-versus-mileage fit is not a depreciation curve.
+ *
+ * Seven completed 911 sales fitted at r2 0.045 and produced a slope saying the
+ * car GAINS $4,921 every ten thousand miles, which the dashboard rendered as
+ * "value lost per 10,000 miles: -$4,921". The fit was not wrong about those
+ * seven cars; mileage simply explains almost none of what separates a 1972
+ * 911E from a 1986 Turbo at $311,000. Variant and year do.
+ *
+ * The trend already refused to claim a direction it could not support. The
+ * curve now does the same.
+ */
+export const MIN_DEPRECIATION_R2 = 0.25;
+
 export interface DepreciationCurve extends Fit {
   /** Dollars lost per 10,000 miles, at the median mileage of the sample. */
   perTenThousandMiles: number;
@@ -153,6 +167,15 @@ export interface DepreciationCurve extends Fit {
   percentPerTenThousandMiles: number;
   /** Fitted price at a given mileage, or null outside the fitted range. */
   priceAt: number[];
+  /**
+   * Whether the fit supports being described as depreciation at all.
+   *
+   * False when it explains too little of the variation, or when it slopes the
+   * wrong way: a curve saying value RISES with mileage is measuring which cars
+   * happen to be in the sample, not what miles cost.
+   */
+  supported: boolean;
+  unsupportedReason: string | null;
 }
 
 /**
@@ -180,11 +203,22 @@ export function fitDepreciation(points: { mileage: number; price: number }[]): D
     priceAt.push(Math.exp(fit.intercept + fit.slope * x));
   }
 
+  const risesWithMileage = fit.slope >= 0;
+  const weak = fit.r2 < MIN_DEPRECIATION_R2;
+  const unsupportedReason =
+    risesWithMileage
+      ? 'the fit says value rises with mileage, which measures the mix of cars in the sample rather than what miles cost'
+      : weak
+        ? `the fit explains only ${Math.round(fit.r2 * 100)}% of the variation, so mileage is not what separates these cars`
+        : null;
+
   return {
     ...fit,
     perTenThousandMiles: priceAtMid - priceAt10kMore,
     percentPerTenThousandMiles: (1 - priceAt10kMore / priceAtMid) * 100,
     priceAt,
+    supported: unsupportedReason === null,
+    unsupportedReason,
   };
 }
 

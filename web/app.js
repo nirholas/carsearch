@@ -304,7 +304,7 @@ async function runSearch(question) {
     loadComps(make, model, q.yearMin, q.yearMax);
     // Coverage is scoped to what is on screen: "412 of 2,259" is a different
     // and less useful claim than "412 of the 266 Macans in these results".
-    loadFacets($('#facet-panel'), { make, model }, () => runSearch());
+    loadFacets($('#facet-panel'), { make, model, priceKinds: readFilters().priceKinds }, () => runSearch());
     // Carry the search across, so the market view opens on the car just looked at.
     if (make) $('#d-make').value = make;
     if (model) $('#d-model').value = model;

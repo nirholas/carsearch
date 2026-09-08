@@ -285,10 +285,17 @@ function headline(report) {
       report.spreadPercent === null ? 'the number no other site shows' : `${pct(report.spreadPercent, 0)} over what buyers paid`,
       'spread',
     ),
+    /**
+     * Only stated when the fit supports it. A curve that slopes the wrong way
+     * rendered as "value lost: -$4,921", which reads as a number rather than as
+     * the absence of a relationship.
+     */
     stat(
       'Value lost per 10,000 miles',
-      dep ? money(dep.perTenThousandMiles) : 'needs sold data',
-      dep ? `${dep.percentPerTenThousandMiles.toFixed(1)}% of value, fitted on ${dep.n} sales` : 'no completed sale carries a mileage',
+      !dep ? 'needs sold data' : dep.supported ? money(dep.perTenThousandMiles) : 'mileage does not explain price here',
+      !dep ? 'no completed sale carries a mileage'
+        : dep.supported ? `${dep.percentPerTenThousandMiles.toFixed(1)}% of value, fitted on ${dep.n} sales`
+        : dep.unsupportedReason,
     ),
     stat('Market direction', trendValue, trendNote),
     stat(
@@ -352,14 +359,16 @@ export async function loadDashboard(scope) {
     ${card('c-dist', 'Asking prices against completed sales',
       'Two populations, not one. The distance between the humps is what sellers hope for and buyers do not pay.')}
 
-    ${report.depreciation
+    ${report.depreciation?.supported
       ? card('c-dep', 'What mileage is worth',
           'Every completed sale, with a curve fitted through them. Depreciation is multiplicative, so the fit is on log price.',
           `Fitted on ${report.depreciation.n} sales between ${num(Math.round(report.depreciation.xMin))} and ${num(Math.round(report.depreciation.xMax))} miles. ` +
           `The fit explains ${Math.round(report.depreciation.r2 * 100)}% of the variation` +
           (report.depreciation.n < 8 ? ', which is a thin sample: read the shape, not the number.' : '.'))
       : `<section class="chart-card empty"><header><h3>What mileage is worth</h3>
-         <p>Needs completed sales that carry a mileage. None in the index for this model yet.</p></header></section>`}
+         <p>${report.depreciation
+            ? esc(`No usable curve: ${report.depreciation.unsupportedReason}. Across ${report.depreciation.n} sales, what separates these cars is variant and year, not miles.`)
+            : 'Needs completed sales that carry a mileage. None in the index for this model yet.'}</p></header></section>`}
 
     ${report.trend.points.length > 1
       ? card('c-trend', 'Sold prices over time',
