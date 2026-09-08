@@ -81,6 +81,9 @@ export const FACETS: readonly FacetDef[] = [
   { key: 'price', column: 'price', label: 'Price', group: 'core', kind: 'number', unit: '$' },
   { key: 'mileage', column: 'mileage', label: 'Mileage', group: 'core', kind: 'number', unit: 'mi' },
   { key: 'bodyType', column: 'body_type', label: 'Body style', group: 'core', kind: 'text' },
+  { key: 'currency', column: 'currency', label: 'Currency', group: 'core', kind: 'enum',
+    values: ['USD', 'EUR', 'GBP', 'NOK', 'SEK', 'AUD', 'CAD', 'CHF', 'PLN'], strict: true,
+    hint: 'Prices are kept in the currency the seller quoted. Comparing across currencies is meaningless, so a search covers one at a time.' },
 
   // --- History ------------------------------------------------------------
   { key: 'titleStatus', column: 'title_status', label: 'Title status', group: 'history', kind: 'enum',

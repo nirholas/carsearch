@@ -110,10 +110,24 @@ const RANK_POOL = 3000;
  * so a value is never applied twice or, worse, applied as something other than
  * what the caller meant.
  */
-const SEARCH_RESERVED = ['make', 'model', 'year', 'price', 'mileage', 'bodyType', 'fuelType'] as const;
-const MARKET_RESERVED = ['make', 'model', 'year', 'mileage'] as const;
+const SEARCH_RESERVED = ['make', 'model', 'year', 'price', 'mileage', 'bodyType', 'fuelType', 'currency'] as const;
+const MARKET_RESERVED = ['make', 'model', 'year', 'mileage', 'currency'] as const;
+
+/**
+ * Currency the search compares in.
+ *
+ * Prices are stored as the seller quoted them, and nothing converts. That is
+ * right for the record and fatal for a comparison: a Finn.no car at 719,434 NOK
+ * is about $67,000, and letting it into a dollar-denominated result set makes
+ * it a $719,000 car to every median, every deal rating and every Pareto
+ * frontier it touches. So a search covers one currency, defaulting to the one
+ * most of the index is in, and asking for another is explicit.
+ */
+const DEFAULT_CURRENCY = 'USD';
 
 function filtersFrom(q: Record<string, string>): SearchFilters {
+  const facets = parseFacetQuery(q, SEARCH_RESERVED);
+  facets.currency ??= { in: [q.currency ?? DEFAULT_CURRENCY] };
   return {
     make: q.make,
     model: q.model,
@@ -125,7 +139,7 @@ function filtersFrom(q: Record<string, string>): SearchFilters {
     bodyType: q.bodyType,
     fuelType: q.fuelType,
     text: q.q,
-    facets: parseFacetQuery(q, SEARCH_RESERVED),
+    facets,
     priceKinds: q.priceKinds ? (q.priceKinds.split(',') as PriceKind[]) : ['ask'],
     sourceIds: q.sources ? q.sources.split(',') : undefined,
   };
@@ -308,12 +322,17 @@ app.get('/api/market', async (c) => {
   const yearMin = int(q.yearMin) ?? null;
   const yearMax = int(q.yearMax) ?? null;
 
+  const marketFacets = parseFacetQuery(q, MARKET_RESERVED);
+  // Same reason as search: a depreciation curve fitted across three currencies
+  // is not a curve, it is three of them drawn on one axis.
+  marketFacets.currency ??= { in: [q.currency ?? DEFAULT_CURRENCY] };
+
   const rows = await store.search({
     make: q.make,
     model: q.model,
     yearMin: yearMin ?? undefined,
     yearMax: yearMax ?? undefined,
-    facets: parseFacetQuery(q, MARKET_RESERVED),
+    facets: marketFacets,
     priceKinds: ['ask', 'bid', 'sold'],
     limit: RANK_POOL,
   });

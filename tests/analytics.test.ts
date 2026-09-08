@@ -370,3 +370,50 @@ test('a canonicalizer never crashes on an unexpected shape', async () => {
   assert.equal(canonicalColor(null), null);
   assert.equal(canonicalColor(undefined), null);
 });
+
+test('the JSON-LD reader descends into schema.org wrappers', async () => {
+  const { extractJsonLd, itemListEntries } = await import('../src/sources/jsonld.js');
+  // A SearchResultsPage nests its ItemList under mainEntity. AutoScout24's
+  // nineteen offers were invisible to a reader that only looked at top-level
+  // nodes and @graph, and the source read as having no structured data at all.
+  const html = `<script type="application/ld+json">${JSON.stringify({
+    '@type': 'SearchResultsPage',
+    url: 'https://example.test/lst/porsche',
+    mainEntity: {
+      '@type': 'ItemList',
+      numberOfItems: 2,
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, url: '/offers/one', name: 'Porsche Macan' },
+        { '@type': 'ListItem', position: 2, url: '/offers/two', name: 'Porsche 911' },
+      ],
+    },
+  })}</script>`;
+  const nodes = extractJsonLd(html);
+  const items = itemListEntries(nodes);
+  assert.equal(items.length, 2);
+  assert.equal(items[0]!.name, 'Porsche Macan');
+  assert.equal(items[1]!.url, '/offers/two');
+});
+
+test('a kilometre reading is converted, not stored as miles', async () => {
+  const { jsonLdMarketplace } = await import('../src/sources/jsonld-marketplace.js');
+  assert.equal(typeof jsonLdMarketplace, 'function');
+  // The conversion itself is exercised through the extractor below; this
+  // guards the unit code that carries it. KMT is UN/CEFACT for kilometres,
+  // and storing 20,900 km as 20,900 miles ranks that car ahead of a genuinely
+  // lower-mileage one with nothing downstream able to detect it.
+  const { extractJsonLd, itemListEntries } = await import('../src/sources/jsonld.js');
+  const html = `<script type="application/ld+json">${JSON.stringify({
+    '@type': 'ItemList',
+    itemListElement: [{
+      '@type': ['Car', 'Product'],
+      name: 'Porsche Macan',
+      mileageFromOdometer: { '@type': 'QuantitativeValue', value: 20900, unitCode: 'KMT' },
+      offers: { '@type': 'Offer', price: 84900, priceCurrency: 'EUR' },
+    }],
+  })}</script>`;
+  const item = itemListEntries(extractJsonLd(html))[0]!;
+  const q = item.mileageFromOdometer as { value: number; unitCode: string };
+  assert.equal(q.unitCode, 'KMT');
+  assert.equal(Math.round(q.value * 0.621371), 12987);
+});

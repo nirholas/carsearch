@@ -25,7 +25,16 @@ export function extractJsonLd(html: string): JsonLdNode[] {
     }
     const node = value as JsonLdNode;
     out.push(node);
-    if (node['@graph']) push(node['@graph']);
+    /**
+     * Descend through the wrappers schema.org uses to nest one entity inside
+     * another. A SearchResultsPage puts its ItemList under `mainEntity`, and
+     * AutoScout24's nineteen offers were invisible to a reader that only
+     * looked at top-level nodes and @graph: the list was there, one level down,
+     * and the source read as having no structured data at all.
+     */
+    for (const key of ['@graph', 'mainEntity', 'mainEntityOfPage', 'about', 'hasPart', 'itemListElement', 'item']) {
+      if (node[key]) push(node[key]);
+    }
   };
 
   for (const match of html.matchAll(BLOCK)) {
