@@ -144,8 +144,8 @@ export const SOURCES: Source[] = [
   // above it, and the salvage archives are a free per-VIN price history.
   // ---------------------------------------------------------------------------
   s({ id: 'copart', name: 'Copart', homepage: 'https://www.copart.com', category: 'auction-salvage',
-      countries: ['US', 'CA', 'GB', 'DE'], status: 'planned', transport: 'fetch', priceKinds: ['bid', 'sold'],
-      notes: 'Re-measured 2026-09-08: a plain fetch returns 200 and 267KB of the search page, so the blocked status was wrong. Extraction is unsolved: it is an Angular app and the page ships no JSON-LD, but its own frontend calls a lot-search endpoint. Run scripts/find-endpoint.ts against it.' }),
+      countries: ['US', 'CA', 'GB', 'DE'], status: 'live', transport: 'fetch', priceKinds: ['bid', 'sold'],
+      notes: 'Wired 2026-09-08 against POST /public/lots/search-results over the TLS transport. The block recorded here was wrong twice over: the service answers a POST and returns 405 to anything else, and the transport was quietly sending GETs because its request options went to the client constructor, so a wrong verb read as a wrong path. The only source found so far that states a title brand on EVERY lot, plus damage description and whether the odometer reading is believed.' }),
   s({ id: 'iaai', name: 'IAA', homepage: 'https://www.iaai.com', category: 'auction-salvage', priceKinds: ['bid', 'sold'] }),
   s({ id: 'poctra', name: 'Poctra', homepage: 'https://poctra.com', category: 'auction-salvage', priceKinds: ['sold'],
       notes: 'Archive of past salvage auction results keyed by VIN. One of the few free sources of historical transaction prices.' }),

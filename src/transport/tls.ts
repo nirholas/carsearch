@@ -81,6 +81,20 @@ export interface TlsResponse {
 }
 
 /**
+ * Per-request options, kept separate from the client options.
+ *
+ * Conflating the two was a real bug: the second argument went to the Impit
+ * CONSTRUCTOR, where `method` and `body` mean nothing, so every request was a
+ * GET however it was written. Copart's search endpoint answered 405 and read
+ * like a wrong path rather than a wrong verb.
+ */
+export interface TlsRequest {
+  method?: string;
+  body?: string;
+  headers?: Record<string, string>;
+}
+
+/**
  * Fetches a URL, trying each impersonation profile until one is accepted.
  *
  * The winning profile is per host, not global: carbide's field notes found
@@ -88,7 +102,11 @@ export interface TlsResponse {
  * hardcoded profile loses half the sources. The winner is cached so the second
  * request to a host pays nothing for the search.
  */
-export async function fetchWithTls(url: string, opts: Partial<ImpitOptions> = {}): Promise<TlsResponse> {
+export async function fetchWithTls(
+  url: string,
+  request: TlsRequest = {},
+  clientOpts: Partial<ImpitOptions> = {},
+): Promise<TlsResponse> {
   const host = new URL(url).hostname;
   const known = winners.get(host);
   const order = known ? [known, ...PROFILES.filter((p) => p !== known)] : PROFILES;
@@ -98,8 +116,12 @@ export async function fetchWithTls(url: string, opts: Partial<ImpitOptions> = {}
 
   for (const profile of order) {
     try {
-      const client = await clientFor(profile, opts);
-      const res = await client.fetch(url);
+      const client = await clientFor(profile, clientOpts);
+      const res = await client.fetch(url, {
+        method: request.method ?? 'GET',
+        ...(request.body === undefined ? {} : { body: request.body }),
+        ...(request.headers === undefined ? {} : { headers: request.headers }),
+      } as never);
       const body = await res.text();
       const result: TlsResponse = { status: res.status, body, profile, url };
       if (res.status >= 200 && res.status < 300) {

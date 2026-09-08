@@ -305,6 +305,13 @@ test('one spelling per body type', async () => {
   // Unknown values are tidied, never dropped.
   assert.equal(canonicalBodyType('kombi'), 'Kombi');
   assert.equal(canonicalBodyType('   '), null);
+
+  // A value that just means "a car" is not a body style. Copart returns
+  // AUTOMOBILE for everything that is not a truck, and the facet was offering
+  // it as a category alongside Coupe.
+  assert.equal(canonicalBodyType('AUTOMOBILE'), null);
+  assert.equal(canonicalBodyType('Vehicle'), null);
+  assert.equal(canonicalBodyType('Other'), null);
 });
 
 test('a petrol grade is not a fuel type', async () => {
@@ -334,4 +341,16 @@ test('paint names reduce to a colour family', async () => {
   assert.equal(canonicalColor('Obsidian Black Metallic'), 'Black');
   assert.equal(canonicalColor('Chalk'), 'White');
   assert.equal(canonicalColor('GT Silver'), 'Silver');
+});
+
+test('a branded title exempts a low price from the age floor', () => {
+  const y = new Date().getFullYear();
+  // Copart states a title brand on every lot and its descriptions carry no
+  // damage word, so without this a salvage source's entire inventory would be
+  // rejected as impossible.
+  assert.equal(isImpossiblePriceForAge('2020 PORSCHE MACAN S', 2000, y - 6), true);
+  assert.equal(isImpossiblePriceForAge('2020 PORSCHE MACAN S', 2000, y - 6, 'salvage'), false);
+  assert.equal(isImpossiblePriceForAge('2020 PORSCHE MACAN S', 2000, y - 6, 'flood'), false);
+  // A clean title is not an excuse for an impossible price.
+  assert.equal(isImpossiblePriceForAge('2020 PORSCHE MACAN S', 2000, y - 6, 'clean'), true);
 });

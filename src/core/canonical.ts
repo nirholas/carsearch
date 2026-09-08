@@ -33,9 +33,19 @@ const BODY_TYPES: [RegExp, string][] = [
   [/\b(chassis|cab ?chassis|incomplete)\b/i, 'Chassis'],
 ];
 
+/**
+ * Values that name a vehicle rather than a body style.
+ *
+ * Copart returns "AUTOMOBILE" for anything that is not a truck or a bike, and
+ * a body-style facet offering "Automobile" beside "Coupe" is offering a
+ * category that means "car", which is every row. An unknown body style is
+ * more useful than a fake one, because the UI already reports coverage.
+ */
+const NOT_A_BODY_STYLE = /^(automobile|vehicle|car|passenger|other|unknown|n\/?a|none)$/i;
+
 export function canonicalBodyType(raw: string | null | undefined): string | null {
   const s = raw?.trim();
-  if (!s) return null;
+  if (!s || NOT_A_BODY_STYLE.test(s)) return null;
   for (const [pattern, canonical] of BODY_TYPES) if (pattern.test(s)) return canonical;
   return titleCase(s);
 }

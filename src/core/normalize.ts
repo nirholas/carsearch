@@ -1,6 +1,7 @@
 import type { Listing, RejectedListing } from './types.js';
 import { loadVocabulary } from '../nl/vocabulary.js';
 import { canonicalBodyType, canonicalFuelType, canonicalColor, blankToNull } from './canonical.js';
+import { BRANDED_TITLES } from './facets.js';
 
 /**
  * Normalization and plausibility.
@@ -124,8 +125,20 @@ const ADMITS_DAMAGE =
  * a ten-year-old car under $2,500 that does not admit damage does not exist,
  * and neither does any running car under $750.
  */
-export function isImpossiblePriceForAge(title: string, price: number | null, year: number | null): boolean {
+export function isImpossiblePriceForAge(
+  title: string,
+  price: number | null,
+  year: number | null,
+  /**
+   * A branded title is the strongest possible statement that a low price is
+   * real. Copart states one on every lot and its descriptions never contain a
+   * damage word, so a 2020 salvage car at $2,000 would otherwise be thrown out
+   * as impossible when it is the entire point of that source.
+   */
+  titleStatus?: string | null,
+): boolean {
   if (price === null || year === null) return false;
+  if (titleStatus && BRANDED_TITLES.includes(titleStatus as (typeof BRANDED_TITLES)[number])) return false;
   if (title && ADMITS_DAMAGE.test(title)) return false;
   const age = new Date().getFullYear() - year;
   if (age < 0) return false;
@@ -435,7 +448,7 @@ export function validate(listings: Listing[]): ValidationResult {
       : isNonVehicle(l.title) ? 'not a vehicle (memorabilia or parts)'
       : l.price === null ? 'missing price'
       : isFinancingBait(l.title, l.price, l.year) ? 'price is a down payment or monthly figure, not the car'
-      : isImpossiblePriceForAge(l.title, l.price, l.year) ? 'price is impossible for a car this age and no damage is disclosed'
+      : isImpossiblePriceForAge(l.title, l.price, l.year, l.titleStatus) ? 'price is impossible for a car this age and no damage is disclosed'
       : l.vin !== null && !isValidVin(l.vin) ? 'malformed VIN'
       : model.check(l);
 
