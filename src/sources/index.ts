@@ -4,6 +4,13 @@ import { carmax } from './carmax.js';
 import { bringatrailer } from './bringatrailer.js';
 import { carsandbids } from './carsandbids.js';
 import { craigslist } from './craigslist.js';
+/**
+ * Written and typed, but deliberately NOT in ADAPTERS: the search endpoint
+ * answers 401 to every request shape tried so far, so running it would fail on
+ * every crawl and teach nobody anything. See the file header and the registry
+ * note for exactly what is known and what the next attempt should try.
+ */
+import { collectingcars } from './collectingcars.js';
 import { tesla } from './tesla.js';
 import { carscom } from './carscom.js';
 import { cargurus } from './cargurus.js';
@@ -20,5 +27,5 @@ export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus
 
 export const adapterById = new Map(ADAPTERS.map((a) => [a.source.id, a]));
 
-export { autotempest, carscom, carmax, cargurus, bringatrailer, carsandbids, craigslist, tesla };
+export { autotempest, carscom, carmax, cargurus, bringatrailer, carsandbids, craigslist, collectingcars, tesla };
 export { SOURCES, getSource, liveSources, registryStats, sourcesByStatus } from './registry.js';
