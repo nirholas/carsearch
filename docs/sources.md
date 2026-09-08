@@ -260,6 +260,17 @@ astonmartin.com/timeless, bentleymotors.com/certified, rolls-roycemotorcars.com/
 
 Most run on the same handful of OEM inventory backends, so a scraper written for one often ports to a sibling brand.
 
+Tested 2026-09-08 on McLaren's, which is representative of the exotic tier:
+`preowned.mclaren.com` redirects to a region path, and only the UK one resolves.
+`/eu/gb/en/vehicles` returns 1.2MB of inventory; `/na/us/en/vehicles` is a 404.
+So this tier is UK inventory quoted in GBP, which the index keeps in its own
+currency and never compares against dollars. The JSON-LD present is breadcrumb
+and organisation markup only, with nothing about the cars, so extraction here
+means real HTML parsing rather than lifting a payload.
+
+The mainstream brands in this list are the ones worth attacking first: they are
+US inventory in dollars, and Porsche Finder is explicitly JSON-backed.
+
 ## 10. Dealer groups and the platforms their sites run on
 
 Recognizing the site platform lets you write one scraper for thousands of dealer sites. This is the cheapest way to get

@@ -197,7 +197,12 @@ export const SOURCES: Source[] = [
       status: 'live', transport: 'fetch', access: 'feed',
       notes: 'Wired 2026-09-08 over the TLS transport; another Next.js App Router site whose inventory rides in the React Flight payload rather than in an XHR. Carries a real VIN per car, so it dedupes against the mainstream sources. Two traps: a price of 0 means "price on request" and must never enter a median, and their results URL does not narrow the payload, so naming a make in it buys nothing and this source is best crawled broadly.' }),
   s({ id: 'jamesedition', name: 'JamesEdition', homepage: 'https://www.jamesedition.com/cars', category: 'specialty', countries: ['GLOBAL'] }),
-  s({ id: 'exoticcartrader', name: 'Exotic Car Trader', homepage: 'https://www.exoticcartrader.com', category: 'specialty' }),
+  s({ id: 'jdpower', name: 'J.D. Power', homepage: 'https://www.jdpower.com', category: 'marketplace',
+      status: 'blocked', transport: 'blocked',
+      notes: 'Tested 2026-09-08: 403 to a plain fetch on every listings URL shape tried, and 404 with a Next.js flight payload over the TLS transport, meaning the paths guessed do not exist rather than being defended. Primarily a valuation brand whose listings are syndicated from elsewhere, so it duplicates inventory the index already has. Low value even if opened.' }),
+  s({ id: 'exoticcartrader', name: 'Exotic Car Trader', homepage: 'https://www.exoticcartrader.com', category: 'specialty',
+      status: 'planned', transport: 'fetch', access: 'html',
+      notes: 'Tested 2026-09-08: open to a plain fetch, no defenses. Two findings for whoever wires it. The filter is a PATH, not a query: /cars-for-sale/mclaren works and /cars-for-sale?make=McLaren is silently ignored, returning the generic page with three featured cars. And there is no payload to extract: server-rendered Webflow plus htmx, no JSON-LD, no embedded state, so this is genuine HTML parsing. Volume is small (6 McLarens against 311 on KBB), which is why it sits behind bigger sources despite being trivially reachable.' }),
   s({ id: 'classicdriver', name: 'Classic Driver', homepage: 'https://www.classicdriver.com', category: 'specialty', countries: ['GLOBAL'] }),
 
   // ---------------------------------------------------------------------------
