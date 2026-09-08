@@ -4,13 +4,15 @@ Ordered by value per unit of work, not by ease. Updated 2026-09-08.
 
 ## Where things stand
 
-15 adapters wired against 98 catalogued sources; 18 sources contribute rows.
-The index holds roughly 7,300 listings and 1,900 completed sales.
+16 adapters wired against 98 catalogued sources; 19 sources contribute rows.
+The index holds 11,171 listings and 1,906 completed sales, with 13,179 price
+points. Kelley Blue Book is the largest single source at 3,809 listings from a
+crawl that covered only four of its twenty-eight makes before being interrupted.
 
 ```
 autotempest  bringatrailer  craigslist  carscom  copart  cargurus  carvana
-carmax  dupontregistry  carsandbids  autoscout24  pcarmarket  hagertymarketplace
-finnno  blocket
+carmax  kbb  dupontregistry  carsandbids  autoscout24  pcarmarket
+hagertymarketplace  finnno  blocket
 ```
 
 ## Next

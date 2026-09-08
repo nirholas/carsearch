@@ -99,6 +99,7 @@ curl 'localhost:8787/api/market?make=Porsche&model=Macan&mileage=45000'
 | [docs/wiring-a-source.md](docs/wiring-a-source.md) | How to wire the next one: the three transports, where the data hides, and how to prove it |
 | [docs/deploy.md](docs/deploy.md) | Cloud Run, Cloud Build, Neon |
 | [docs/roadmap.md](docs/roadmap.md) | What is not built yet |
+| [docs/handoff-2026-09-08.md](docs/handoff-2026-09-08.md) | Session record: Kelley Blue Book, the third transport, and why `git log` looks truncated |
 
 ## Asking in plain English
 
