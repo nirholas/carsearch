@@ -1,4 +1,5 @@
 import type { Listing, SearchQuery, SourceAdapter } from '../core/types.js';
+import { makeListing, type ListingDraft } from '../core/listing.js';
 import { getSource } from './registry.js';
 import { evaluateInPage } from '../transport/browser.js';
 import { isRoundedMileage, isValidVin } from '../core/normalize.js';
@@ -49,7 +50,7 @@ export const carmax: SourceAdapter = {
 
   async search(query, ctx) {
     const now = new Date().toISOString();
-    const out = new Map<string, Listing>();
+    const out = new Map<string, ListingDraft>();
     const make = query.make;
     if (!make) {
       ctx.log('carmax: needs a make, skipping');
@@ -113,6 +114,6 @@ export const carmax: SourceAdapter = {
       }
     }
 
-    return [...out.values()];
+    return [...out.values()].map(makeListing);
   },
 };

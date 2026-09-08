@@ -1,5 +1,5 @@
 import { Store } from './db.js';
-import type { CarStore, SearchFilters, SoldComps, StoreStats } from './store.js';
+import type { CarStore, SearchFilters, SoldComps, StoreStats, FacetCoverage } from './store.js';
 import type { Listing, RejectedListing } from '../core/types.js';
 import type { DedupeGroup } from '../core/dedupe.js';
 
@@ -45,6 +45,8 @@ export class SqliteStore implements CarStore {
   async markDelisted(sourceId: string, seenIds: string[]): Promise<number> {
     return this.db.markDelisted(sourceId, seenIds);
   }
+
+  async facetCoverage(f?: SearchFilters): Promise<FacetCoverage[]> { return this.db.facetCoverage(f); }
 
   async search(filters: SearchFilters = {}): Promise<Listing[]> {
     return this.db.search(filters);

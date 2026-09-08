@@ -57,7 +57,14 @@ img { max-width: 100%; }
   flex: 1; min-width: 0; padding: 10px 14px; border: 1px solid var(--line);
   border-radius: var(--radius); background: var(--panel); color: var(--ink); font-size: 14.5px;
 }
-.topnav { display: flex; gap: 2px; }
+.topnav {
+  display: flex; gap: 2px; min-width: 0;
+  /* A fourth nav item pushed the row 3px past a 390px viewport, which scrolls
+     the whole document sideways. The nav scrolls within itself instead, so the
+     page never does. */
+  overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
+}
+.topnav::-webkit-scrollbar { display: none; }
 .topnav a {
   padding: 8px 12px; border-radius: var(--radius); text-decoration: none;
   color: var(--muted); font-size: 14px; font-weight: 500; white-space: nowrap;
@@ -348,4 +355,166 @@ th { color: var(--muted); font-weight: 600; font-size: 10.5px; text-transform: u
   .card { grid-template-columns: 104px minmax(0,1fr); }
   .card .thumb, .card .noimg { width: 104px; height: 74px; }
   .price { grid-column: 2; text-align: left; min-width: 0; }
+}
+
+/* ============================================================== ranking ==
+   The order of a result list is a claim, so the page explains it. A "best of
+   both" badge means the Pareto frontier: nothing in the whole result set beats
+   that car on every dimension the user ranked by. */
+
+.rankline { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.frontier {
+  font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .06em; padding: 5px 7px; border-radius: 5px;
+  background: var(--great); color: #fff; white-space: nowrap;
+}
+.rank-reason {
+  font: 500 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: 4px 7px; border-radius: 5px; background: var(--panel-2); color: var(--muted);
+  border: 1px solid var(--line); white-space: nowrap;
+}
+.rank-reason .of { opacity: .6; margin-left: 4px; }
+
+.rank-reason.unknown { border-style: dashed; font-style: italic; }
+
+.sortline { display: block; margin-top: 4px; color: var(--muted); }
+.warnline {
+  display: block; margin-top: 6px; padding: 7px 10px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--high) 12%, transparent);
+  border-left: 3px solid var(--high); color: var(--ink); font-size: 13px;
+}
+
+/* ================================================================ facets ==
+   Every control carries its coverage. Filtering on an attribute most listings
+   never publish is a deletion, not a narrowing, and the number says which. */
+
+.facet-panel { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.facet-group { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.facet-group > summary {
+  cursor: pointer; padding: 10px 12px; font-weight: 600; font-size: 13px;
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  list-style: none; border-radius: var(--radius);
+}
+.facet-group > summary::-webkit-details-marker { display: none; }
+.facet-group > summary::before {
+  content: "›"; display: inline-block; transition: transform .15s ease;
+  margin-right: 6px; color: var(--muted); font-size: 15px;
+}
+.facet-group[open] > summary::before { transform: rotate(90deg); }
+.facet-group > summary:hover { background: var(--panel-2); }
+.facet-group > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.facet-group > summary .n { margin-left: auto; color: var(--muted); font-weight: 500; font-size: 11px; }
+
+.facet-body { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 14px; }
+.facet { display: flex; flex-direction: column; gap: 5px; }
+.facet.unpopulated { opacity: .55; }
+.facet-label { font-size: 12px; font-weight: 600; }
+.facet-label em { font-style: normal; font-weight: 400; color: var(--muted); }
+.facet-num .row { display: flex; gap: 6px; }
+.facet-num input { width: 100%; min-width: 0; }
+
+.cov { font-size: 11px; color: var(--muted); }
+.cov.high { color: var(--great); }
+.cov.mid { color: var(--high); }
+.cov.low, .cov.none { color: var(--muted); font-style: italic; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.fchip {
+  font: 500 12px/1 inherit; padding: 5px 8px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  transition: background .12s ease, border-color .12s ease, transform .08s ease;
+}
+.fchip:hover { border-color: var(--accent); }
+.fchip:active { transform: translateY(1px); }
+.fchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fchip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.fchip.empty { opacity: .45; }
+.fchip .n { margin-left: 5px; opacity: .65; font-variant-numeric: tabular-nums; }
+
+.check.subtle { font-size: 11px; color: var(--muted); }
+
+/* ============================================================= dashboard == */
+
+.dash { max-width: var(--maxw); margin: 0 auto; padding: 18px 16px 60px; }
+.dash-controls {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: end;
+  padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-lg);
+  background: var(--panel); margin-bottom: 16px;
+}
+.dash-controls label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; flex: 1 1 130px; min-width: 0; }
+.dash-controls button { flex: 0 0 auto; }
+.dash-head h2 { margin: 0 0 2px; font-size: 22px; letter-spacing: -.02em; }
+.dash-head p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.dash-body { display: flex; flex-direction: column; gap: 16px; }
+
+.chart-card {
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  background: var(--panel); padding: 16px; box-shadow: var(--shadow);
+}
+.chart-card header h3 { margin: 0 0 3px; font-size: 15px; letter-spacing: -.01em; }
+.chart-card header p { margin: 0 0 12px; color: var(--muted); font-size: 12.5px; max-width: 70ch; }
+.chart-card.empty { opacity: .8; }
+/* A fixed height so the canvas has something to be responsive against; without
+   it Chart.js and a flex parent grow each other without bound. */
+.chart-wrap { position: relative; height: 320px; }
+.chart-note { margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.table-scroll { overflow-x: auto; }
+.dash-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.dash-table th, .dash-table td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.dash-table th:first-child, .dash-table td:first-child { text-align: left; }
+.dash-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+.dash-table td.sold { color: var(--sold); font-weight: 600; }
+.dash-table td.n { color: var(--muted); font-size: 12px; }
+.dash-table tbody tr:hover { background: var(--panel-2); }
+
+/* ============================================================ valuation == */
+
+.valuation {
+  border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel);
+  padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow);
+}
+.val-head { display: flex; justify-content: space-between; align-items: start; gap: 14px; flex-wrap: wrap; }
+.val-k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+.val-v { font-size: 34px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; margin: 2px 0; }
+.val-v.weak { color: var(--high); }
+.val-v.none { color: var(--muted); }
+.val-n { font-size: 12px; color: var(--muted); }
+.val-empty { color: var(--muted); font-size: 13px; }
+.conf {
+  font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em;
+  text-transform: uppercase; padding: 6px 8px; border-radius: 5px; white-space: nowrap;
+}
+.conf.good { background: var(--great); color: #fff; }
+.conf.weak { background: var(--high); color: #fff; }
+.conf.none { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.val-warn {
+  margin: 12px 0 0; padding: 9px 11px; border-radius: var(--radius); font-size: 12.5px;
+  background: color-mix(in srgb, var(--high) 12%, transparent); border-left: 3px solid var(--high);
+}
+.val-forecast { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.forecast-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.fy {
+  display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; min-width: 108px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg);
+}
+.fy-y { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+.fy-v { font-size: 17px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.fy-d { font-size: 11px; color: var(--over); font-variant-numeric: tabular-nums; }
+
+.skeleton.sm { height: 54px; }
+.skeleton.lg { height: 300px; }
+
+/* A flex or grid child defaults to min-width:auto, so it refuses to shrink
+   below its content and a wide table drags the whole page sideways even though
+   its own wrapper is set to scroll. Every column child needs this. */
+.dash-body > *, .chart-card > *, .results > * { min-width: 0; }
+.dash-body, .chart-card { min-width: 0; }
+.table-scroll { max-width: 100%; }
+
+@media (max-width: 720px) {
+  .chart-wrap { height: 260px; }
+  .val-v { font-size: 27px; }
+  .dash-controls label { flex: 1 1 100%; }
+  .dash { padding: 14px 12px 48px; }
 }

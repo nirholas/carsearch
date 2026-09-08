@@ -19,6 +19,7 @@
   <nav class="topnav">
     <a href="#/results" data-route="results">Listings</a>
     <a href="#/auctions" data-route="auctions">Auctions &amp; sold</a>
+    <a href="#/dashboard" data-route="dashboard">Market data</a>
     <a href="#/sources" data-route="sources">Sources</a>
   </nav>
 </header>
@@ -137,15 +138,27 @@
       <label>max<input id="f-priceMax" type="number" inputmode="numeric" placeholder="40000"></label>
     </div>
     <label>Max mileage<input id="f-mileageMax" type="number" inputmode="numeric" placeholder="70000"></label>
-    <label>Sort
+    <label>Rank by
       <select id="f-sort">
-        <option value="price">Lowest price</option>
-        <option value="mileage">Lowest mileage</option>
-        <option value="year">Newest year</option>
-        <option value="newest">Recently listed</option>
-        <option value="days-on-market">Longest on market</option>
+        <optgroup label="One thing at a time">
+          <option value="price">Lowest price</option>
+          <option value="mileage">Lowest mileage</option>
+          <option value="year">Newest model year</option>
+          <option value="age">Oldest model year</option>
+          <option value="newest">Recently listed</option>
+          <option value="days-on-market">Longest on the market</option>
+        </optgroup>
+        <optgroup label="Two things at once">
+          <option value="mileage+price">Lowest mileage and lowest price</option>
+          <option value="deal">Best deal against sold prices</option>
+          <option value="value">Best value: below market, low miles</option>
+          <option value="best">Best overall: deal, miles and price</option>
+        </optgroup>
       </select>
     </label>
+    <p class="hint" id="sort-hint">Asking for two things at once ranks by the trade-off between them and marks
+       the cars nothing beats on both.</p>
+    <div class="facet-panel" id="facet-panel" aria-label="Every other attribute"></div>
     <fieldset>
       <legend>Price type</legend>
       <label class="check"><input type="checkbox" id="k-ask" checked> Asking prices</label>
@@ -168,6 +181,20 @@
   </section>
 </main>
 
+<!-- Market dashboard -->
+<main id="view-dashboard" class="dash" hidden>
+  <form class="dash-controls" id="dash-form">
+    <label>Make<input id="d-make" type="text" placeholder="Porsche" value="Porsche"></label>
+    <label>Model<input id="d-model" type="text" placeholder="Macan" value="Macan"></label>
+    <label>Year from<input id="d-yearMin" type="number" inputmode="numeric" placeholder="any"></label>
+    <label>to<input id="d-yearMax" type="number" inputmode="numeric" placeholder="any"></label>
+    <label>Value a car at<input id="d-mileage" type="number" inputmode="numeric" placeholder="45,000 mi"></label>
+    <button type="submit" class="primary">Show the market</button>
+  </form>
+  <div id="valuation" class="valuation" hidden></div>
+  <div id="dash-body" class="dash-body"></div>
+</main>
+
 <!-- Auctions and completed sales -->
 <main id="view-auctions" class="auctions" hidden>
   <div class="auction-head">
@@ -183,6 +210,7 @@
   <div id="sources-body"></div>
 </main>
 
+<script src="/vendor/chart.umd.js"></script>
 <script src="/app.js" type="module"></script>
 </body>
 </html>

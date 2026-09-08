@@ -32,6 +32,66 @@ const THIS_YEAR = new Date().getFullYear();
 const OLD_THRESHOLD_YEARS = 15;
 const NEW_THRESHOLD_YEARS = 3;
 
+/**
+ * Phrases that ask for an ordering rather than a filter.
+ *
+ * Longest and most specific first: "lowest mileage and cheapest" must not be
+ * consumed by the bare "cheapest" rule, or the mileage half of the request
+ * disappears without a trace.
+ */
+const SORT_INTENTS: { pattern: RegExp; sort: string; explain: string }[] = [
+  {
+    pattern: /\b(?:lowest|least|fewest|lowest)\s*(?:mileage|miles|mile)\b[\s,]*(?:and|with|plus|&)?\s*\b(?:cheapest|lowest priced?|lowest price|best priced?|least expensive)\b/,
+    sort: 'mileage+price',
+    explain: 'Ranked by lowest mileage and lowest price together, showing which cars nothing beats on both',
+  },
+  {
+    pattern: /\b(?:cheapest|lowest priced?|lowest price|least expensive)\b[\s,]*(?:and|with|plus|&)?\s*\b(?:lowest|least|fewest|lowest)\s*(?:mileage|miles|mile)\b/,
+    sort: 'mileage+price',
+    explain: 'Ranked by lowest mileage and lowest price together, showing which cars nothing beats on both',
+  },
+  {
+    pattern: /\b(?:best|biggest)\s*(?:deal|price)\s*(?:vs|versus|against|compared to)\s*(?:market|sold|comps?)\b/,
+    sort: 'deal',
+    explain: 'Ranked against completed sale prices',
+  },
+  {
+    pattern: /\b(?:best|biggest|greatest)\s*(?:value|deals?|bargains?|discounts?)\b/,
+    sort: 'value',
+    explain: 'Ranked by value: furthest below what these actually sell for, with low miles',
+  },
+  {
+    pattern: /\b(?:lowest|least|fewest|lowest)\s*(?:mileage|miles)\b/,
+    sort: 'mileage',
+    explain: 'Ranked by lowest mileage',
+  },
+  {
+    pattern: /\b(?:cheapest|lowest priced?|lowest price|least expensive)\b/,
+    sort: 'price',
+    explain: 'Ranked by lowest price',
+  },
+  {
+    pattern: /\b(?:newest|latest|most recent)\s*(?:year|model year|model)\b/,
+    sort: 'year',
+    explain: 'Ranked by newest model year',
+  },
+  {
+    pattern: /\b(?:oldest|earliest)\s*(?:year|model year|model)?\b/,
+    sort: 'age',
+    explain: 'Ranked by oldest model year',
+  },
+  {
+    pattern: /\b(?:just listed|newly listed|recently listed|new listings?)\b/,
+    sort: 'newest',
+    explain: 'Ranked by most recently listed',
+  },
+  {
+    pattern: /\b(?:longest|been)\s*(?:on the market|listed|sitting|unsold)\b/,
+    sort: 'days-on-market',
+    explain: 'Ranked by longest on the market, where a seller is most likely to negotiate',
+  },
+];
+
 const BODY_TYPES: Record<string, string> = {
   suv: 'SUV', crossover: 'SUV', truck: 'Truck', pickup: 'Truck', sedan: 'Sedan',
   coupe: 'Coupe', convertible: 'Convertible', cabriolet: 'Convertible', roadster: 'Convertible',
@@ -75,6 +135,23 @@ export function parseQuery(text: string): ParsedQuery {
     t = t.replace(match.toLowerCase(), ' ');
   };
 
+
+  /* --- Sort intent --------------------------------------------------------
+   *
+   * Read before the price and mileage filters, and consumed, because the two
+   * are easy to confuse and the failure is silent. "lowest mileage" is a
+   * ranking; "low miles" is a filter. Reading the first as the second caps the
+   * results at 40,000 miles and hides every car the user actually asked to see
+   * ranked, while still returning a plausible page.
+   */
+  for (const rule of SORT_INTENTS) {
+    const hit = t.match(rule.pattern);
+    if (!hit) continue;
+    query.sort = rule.sort;
+    interpretation.push(rule.explain);
+    consume(hit[0]);
+    break;
+  }
 
   // --- Intent: asking prices, or what things actually sold for -------------
   const kinds: PriceKind[] = [];

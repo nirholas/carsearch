@@ -1,4 +1,5 @@
 import type { Listing, SearchQuery, SourceAdapter } from '../core/types.js';
+import { makeListing, type ListingDraft } from '../core/listing.js';
 import { getSource } from './registry.js';
 import { evaluateInPage } from '../transport/browser.js';
 import { isRoundedMileage, isValidVin } from '../core/normalize.js';
@@ -66,7 +67,7 @@ export const tesla: SourceAdapter = {
 
   async search(query, ctx) {
     const now = new Date().toISOString();
-    const out: Listing[] = [];
+    const out: ListingDraft[] = [];
 
     const wanted = query.models?.length
       ? query.models.map((m) => MODEL_CODES[m.toLowerCase()]).filter((x): x is string => Boolean(x))
@@ -119,6 +120,6 @@ export const tesla: SourceAdapter = {
       }
     }
 
-    return out;
+    return out.map(makeListing);
   },
 };

@@ -2,7 +2,10 @@ import pg from 'pg';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CarStore, SearchFilters, SoldComps, StoreStats } from './store.js';
+import type { CarStore, SearchFilters, SoldComps, StoreStats, FacetCoverage } from './store.js';
+import { FACETS } from '../core/facets.js';
+import { buildFacetPredicates } from './filter.js';
+import { INSERT_COLUMNS, insertValues, updateAssignments, rowToListing, postgresMigrations } from './columns.js';
 import type { Listing, PriceKind, RejectedListing } from '../core/types.js';
 import type { DedupeGroup } from '../core/dedupe.js';
 
@@ -35,6 +38,9 @@ export class PostgresStore implements CarStore {
 
   async init(): Promise<void> {
     await this.pool.query(readFileSync(join(here, 'schema-pg.sql'), 'utf8'));
+    // Facet columns are added here rather than only in the schema file, because
+    // CREATE TABLE IF NOT EXISTS does nothing to a table that already exists.
+    for (const sql of postgresMigrations()) await this.pool.query(sql);
   }
 
   async close(): Promise<void> {
@@ -63,25 +69,13 @@ export class PostgresStore implements CarStore {
         const existed = prev.rowCount! > 0;
         const priceChanged = l.price !== null && existed && prev.rows[0]!.price !== l.price;
 
+        const cols = INSERT_COLUMNS;
+        const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
         await client.query(
-          `INSERT INTO listings (
-             id, source_id, source_listing_id, url, title, year, make, model, trim, series,
-             vin, price, price_kind, currency, mileage, mileage_is_rounded,
-             location, seller_type, body_type, exterior_color, fuel_type,
-             event_date, image_url, first_seen, last_seen, raw
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW(),NOW(),$24)
-           ON CONFLICT (id) DO UPDATE SET
-             url = EXCLUDED.url, title = EXCLUDED.title, price = EXCLUDED.price,
-             mileage = EXCLUDED.mileage, trim = EXCLUDED.trim, series = EXCLUDED.series,
-             vin = COALESCE(EXCLUDED.vin, listings.vin),
-             location = EXCLUDED.location, image_url = EXCLUDED.image_url,
-             last_seen = NOW(), delisted_at = NULL, raw = EXCLUDED.raw`,
-          [
-            l.id, l.sourceId, l.sourceListingId, l.url, l.title, l.year, l.make, l.model, l.trim, l.series,
-            l.vin, l.price, l.priceKind, l.currency, l.mileage, l.mileageIsRounded,
-            l.location, l.sellerType, l.bodyType, l.exteriorColor, l.fuelType,
-            l.eventDate, l.imageUrl, l.raw ? JSON.stringify(l.raw) : null,
-          ],
+          `INSERT INTO listings (${cols.join(', ')}, first_seen, last_seen)
+           VALUES (${placeholders}, NOW(), NOW())
+           ON CONFLICT (id) DO UPDATE SET ${updateAssignments('listings')}, last_seen = NOW(), delisted_at = NULL`,
+          insertValues(l),
         );
 
         if (!existed) inserted++;
@@ -181,6 +175,7 @@ export class PostgresStore implements CarStore {
     if (f.text) where.push(`LOWER(title) LIKE LOWER(${p(`%${f.text}%`)})`);
     if (f.priceKinds?.length) where.push(`price_kind = ANY(${p(f.priceKinds)}::text[])`);
     if (f.sourceIds?.length) where.push(`source_id = ANY(${p(f.sourceIds)}::text[])`);
+    for (const pred of buildFacetPredicates(f.facets, p)) where.push(pred.sql);
 
     const order =
       f.sort === 'mileage' ? 'mileage ASC NULLS LAST'
@@ -194,6 +189,46 @@ export class PostgresStore implements CarStore {
       params,
     );
     return res.rows.map(rowToListing);
+  }
+
+  async facetCoverage(f: SearchFilters = {}): Promise<FacetCoverage[]> {
+    const where: string[] = ['delisted_at IS NULL'];
+    const params: unknown[] = [];
+    const p = (v: unknown) => `$${params.push(v)}`;
+    if (f.make) where.push(`LOWER(make) = LOWER(${p(f.make)})`);
+    if (f.model) where.push(`LOWER(model) LIKE LOWER(${p(`%${f.model}%`)})`);
+    if (f.priceKinds?.length) where.push(`price_kind = ANY(${p(f.priceKinds)}::text[])`);
+    const scope = where.join(' AND ');
+
+    const total = Number(
+      (await this.pool.query(`SELECT COUNT(*)::int AS n FROM listings WHERE ${scope}`, params)).rows[0]!.n,
+    );
+
+    // One pass for every facet's known-count, rather than a query per facet.
+    const knownSelect = FACETS.map((x) => `COUNT(${x.column})::int AS "${x.key}"`).join(', ');
+    const known = (await this.pool.query(`SELECT ${knownSelect} FROM listings WHERE ${scope}`, params)).rows[0] as Record<string, number>;
+
+    const out: FacetCoverage[] = [];
+    for (const def of FACETS) {
+      const base: FacetCoverage = {
+        key: def.key, column: def.column, label: def.label, group: def.group, kind: def.kind,
+        unit: def.unit, hint: def.hint, strict: Boolean(def.strict),
+        known: known[def.key] ?? 0, total,
+      };
+      if (base.known === 0) { out.push(base); continue; }
+      if (def.kind === 'number') {
+        const r = (await this.pool.query(
+          `SELECT MIN(${def.column}) AS lo, MAX(${def.column}) AS hi FROM listings WHERE ${scope}`, params)).rows[0]!;
+        out.push({ ...base, min: r.lo === null ? null : Number(r.lo), max: r.hi === null ? null : Number(r.hi) });
+      } else {
+        const r = await this.pool.query(
+          `SELECT ${def.column}::text AS value, COUNT(*)::int AS n FROM listings
+           WHERE ${scope} AND ${def.column} IS NOT NULL
+           GROUP BY 1 ORDER BY n DESC LIMIT 40`, params);
+        out.push({ ...base, values: r.rows.map((x: { value: string; n: number }) => ({ value: x.value, n: Number(x.n) })) });
+      }
+    }
+    return out;
   }
 
   async soldComps(make: string, model: string, yearMin: number, yearMax: number): Promise<SoldComps> {
@@ -283,34 +318,3 @@ export class PostgresStore implements CarStore {
   }
 }
 
-function rowToListing(r: Record<string, unknown>): Listing {
-  const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v ?? ''));
-  return {
-    id: r.id as string,
-    sourceId: r.source_id as string,
-    sourceListingId: (r.source_listing_id as string) ?? null,
-    url: (r.url as string) ?? null,
-    title: r.title as string,
-    year: (r.year as number) ?? null,
-    make: (r.make as string) ?? null,
-    model: (r.model as string) ?? null,
-    trim: (r.trim as string) ?? null,
-    series: (r.series as string) ?? null,
-    vin: (r.vin as string) ?? null,
-    price: (r.price as number) ?? null,
-    priceKind: r.price_kind as PriceKind,
-    currency: r.currency as string,
-    mileage: (r.mileage as number) ?? null,
-    mileageIsRounded: Boolean(r.mileage_is_rounded),
-    location: (r.location as string) ?? null,
-    sellerType: (r.seller_type as Listing['sellerType']) ?? null,
-    bodyType: (r.body_type as string) ?? null,
-    exteriorColor: (r.exterior_color as string) ?? null,
-    fuelType: (r.fuel_type as string) ?? null,
-    eventDate: (r.event_date as string) ?? null,
-    imageUrl: (r.image_url as string) ?? null,
-    firstSeen: iso(r.first_seen),
-    lastSeen: iso(r.last_seen),
-    raw: (r.raw as Record<string, unknown>) ?? undefined,
-  };
-}

@@ -1,3 +1,5 @@
+import type { TitleStatus, Transmission, Drivetrain, UsageHistory } from './facets.js';
+
 /**
  * Core domain model.
  *
@@ -132,6 +134,46 @@ export interface Listing {
   firstSeen: string;
   lastSeen: string;
 
+  /* --- Title and history -------------------------------------------------
+   * Every field here is null far more often than it is populated, because most
+   * sources never publish it. Null means "this source did not say", never
+   * "no". Filtering on any of them is therefore a narrowing on the subset that
+   * disclosed, which the API reports explicitly rather than hiding.
+   */
+  titleStatus: TitleStatus | null;
+  owners: number | null;
+  /** Accidents REPORTED to a history provider, which is all any source knows. */
+  accidents: number | null;
+  accidentFree: boolean | null;
+  serviceRecords: boolean | null;
+  usage: UsageHistory | null;
+  isImport: boolean | null;
+  /** An open NHTSA campaign for this year, make and model. */
+  openRecall: boolean | null;
+
+  /* --- Mechanical --------------------------------------------------------- */
+  transmission: Transmission | null;
+  drivetrain: Drivetrain | null;
+  engine: string | null;
+  cylinders: number | null;
+  displacementL: number | null;
+  doors: number | null;
+  seats: number | null;
+
+  /* --- Efficiency --------------------------------------------------------- */
+  mpgCity: number | null;
+  mpgHighway: number | null;
+  rangeMiles: number | null;
+  batteryKwh: number | null;
+
+  /* --- Appearance and seller ---------------------------------------------- */
+  interiorColor: string | null;
+  certified: boolean | null;
+  dealerName: string | null;
+  dealerRating: number | null;
+  /** Equipment the listing advertised, kept so a feature can be searched for. */
+  options: string[] | null;
+
   /** Anything source-specific that does not fit the model, kept rather than discarded. */
   raw?: Record<string, unknown>;
 }
@@ -170,6 +212,11 @@ export interface SearchQuery {
   /** Restrict to these source ids. Empty or absent means every live source. */
   sourceIds?: string[];
   priceKinds?: PriceKind[];
+  /**
+   * A ranking spec, not a column. See core/rank.ts: "mileage+price" asks for
+   * the trade-off between the two, which no single ORDER BY can express.
+   */
+  sort?: string;
   limit?: number;
 }
 

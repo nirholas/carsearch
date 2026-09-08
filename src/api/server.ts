@@ -11,6 +11,12 @@ import { run } from '../pipeline.js';
 import type { PriceKind } from '../core/types.js';
 import { ask } from '../nl/index.js';
 import { loadVocabulary } from '../nl/vocabulary.js';
+import { rank, parseSortSpec, PRESETS, DEFAULT_SORT } from '../core/rank.js';
+import { isRated } from '../core/rating.js';
+import { parseFacetQuery } from '../store/filter.js';
+import { FACETS, FACETS_BY_KEY, GROUP_LABELS } from '../core/facets.js';
+import { analyzeMarket, valueAtMileage, forecastOwnership } from '../analytics/market.js';
+import type { Listing } from '../core/types.js';
 
 /**
  * Read API over the aggregated index.
@@ -86,9 +92,29 @@ app.get('/api/sources', (c) =>
  * at once, and returning it once with the sites it appears on is both more
  * honest and more useful than inflating the count.
  */
-app.get('/api/search', async (c) => {
-  const q = c.req.query();
-  const filters: SearchFilters = {
+/**
+ * How many rows are pulled into memory to be ranked.
+ *
+ * Ranking is multi-criteria and computed over the whole candidate set, so the
+ * pool must be the population, not a page of it: a percentile taken from rows
+ * SQL already truncated by a different ordering is a percentile of the wrong
+ * population, and the answer would change with the page size. The pool cap is
+ * reported in the response so a truncated one is never silently presented as
+ * complete.
+ */
+const RANK_POOL = 3000;
+
+/**
+ * Query parameters each endpoint owns, which must not also be read as facet
+ * filters. Both lists name the columns the handler already applies explicitly,
+ * so a value is never applied twice or, worse, applied as something other than
+ * what the caller meant.
+ */
+const SEARCH_RESERVED = ['make', 'model', 'year', 'price', 'mileage', 'bodyType', 'fuelType'] as const;
+const MARKET_RESERVED = ['make', 'model', 'year', 'mileage'] as const;
+
+function filtersFrom(q: Record<string, string>): SearchFilters {
+  return {
     make: q.make,
     model: q.model,
     yearMin: int(q.yearMin),
@@ -99,31 +125,212 @@ app.get('/api/search', async (c) => {
     bodyType: q.bodyType,
     fuelType: q.fuelType,
     text: q.q,
-    sort: (q.sort as SearchFilters['sort']) ?? 'price',
-    limit: int(q.limit) ?? 200,
-    offset: int(q.offset) ?? 0,
+    facets: parseFacetQuery(q, SEARCH_RESERVED),
     priceKinds: q.priceKinds ? (q.priceKinds.split(',') as PriceKind[]) : ['ask'],
     sourceIds: q.sources ? q.sources.split(',') : undefined,
   };
+}
 
-  const listings = await store.search(filters);
-  const groups = dedupe(listings);
+/**
+ * Deal ratings for a whole pool, with one sold-price lookup per cohort.
+ *
+ * Rating each listing independently issued one query per row, which was
+ * tolerable at 200 rows and is not at 3000. Cars cluster hard into cohorts, so
+ * memoizing on (make, model, year) turns thousands of queries into a few dozen.
+ */
+async function rateAll(rows: Listing[]) {
+  const cache = new Map<string, Promise<number[]>>();
+  const soldFor = (l: Listing) => {
+    const key = `${l.make ?? ''}|${l.model ?? ''}|${l.year ?? ''}`.toLowerCase();
+    let hit = cache.get(key);
+    if (!hit) {
+      hit = store.soldPricesFor(l.make, l.model, l.year);
+      cache.set(key, hit);
+    }
+    return hit;
+  };
+  return new Map(await Promise.all(rows.map(async (l) => [l.id, rateListing(l, await soldFor(l))] as const)));
+}
+
+/**
+ * Search the index.
+ *
+ * Results come back grouped, not flat. The same car is listed on several sites
+ * at once, and returning it once with the sites it appears on is both more
+ * honest and more useful than inflating the count.
+ *
+ * Ordering happens here rather than in SQL because the orderings that matter
+ * are not columns. "Lowest mileage and lowest price" is a trade-off between two
+ * objectives, and the answer to it is a Pareto frontier plus a blended score,
+ * neither of which an ORDER BY can express. See core/rank.ts.
+ */
+app.get('/api/search', async (c) => {
+  const q = c.req.query();
+  const filters = filtersFrom(q);
+  const limit = Math.min(int(q.limit) ?? 200, 500);
+  const offset = int(q.offset) ?? 0;
+
+  const spec = parseSortSpec(q.sort);
+  // The coarse SQL pre-order decides which rows survive the pool cap, so it is
+  // set from the first requested dimension rather than left at its default.
+  const primary = spec.terms[0]!.key;
+  const sqlSort: SearchFilters['sort'] =
+    primary === 'mileage' ? 'mileage'
+    : primary === 'year' ? 'year'
+    : primary === 'listed' ? 'newest'
+    : primary === 'days-on-market' ? 'days-on-market'
+    : 'price';
+
+  const pool = await store.search({ ...filters, sort: sqlSort, limit: RANK_POOL, offset: 0 });
+  const groups = dedupe(pool);
+  const deals = await rateAll(groups.map((g) => g.primary));
+
+  const rankInputs = groups.map((g) => {
+    const deal = deals.get(g.primary.id);
+    return {
+      id: g.primary.id,
+      price: g.primary.price,
+      mileage: g.primary.mileage,
+      year: g.primary.year,
+      firstSeen: g.primary.firstSeen,
+      daysOnMarket: daysBetween(g.primary.firstSeen, g.primary.lastSeen),
+      dealPercent: deal && isRated(deal) ? deal.percentVsSold : null,
+      group: g,
+    };
+  });
+
+  const ranked = rank(rankInputs, q.sort);
+  const page = ranked.ranked.slice(offset, offset + limit);
 
   return c.json({
-    query: filters,
-    stats: dedupeStats(listings, groups),
+    query: { ...filters, sort: q.sort ?? DEFAULT_SORT },
+    sort: {
+      label: ranked.label,
+      terms: ranked.terms,
+      ignored: ranked.ignored,
+      /** Rows nothing else beats on every requested dimension at once. */
+      frontierSize: ranked.frontierSize,
+      options: Object.entries(PRESETS).map(([value, p]) => ({ value, label: p.label })),
+    },
+    stats: {
+      ...dedupeStats(pool, groups),
+      matched: ranked.ranked.length,
+      returned: page.length,
+      offset,
+      poolCap: RANK_POOL,
+      /** True when the cap bit, so the ranking saw a truncated population. */
+      poolTruncated: pool.length >= RANK_POOL,
+      excludedForUnknown: describeUnknownExclusions(filters),
+    },
     results: await Promise.all(
-      groups.map(async (g) => ({
-        ...g.primary,
-        daysOnMarket: await store.daysOnMarket(g.primary.id),
-        priceHistory: await store.priceHistory(g.primary.id),
-        alsoOn: g.sources.filter((s) => s !== g.primary.sourceId),
-        matchConfidence: g.confidence,
-        deal: rateListing(g.primary, await store.soldPricesFor(g.primary.make, g.primary.model, g.primary.year)),
-      })),
+      page.map(async (r) => {
+        const g = r.row.group;
+        return {
+          ...g.primary,
+          daysOnMarket: await store.daysOnMarket(g.primary.id),
+          priceHistory: await store.priceHistory(g.primary.id),
+          alsoOn: g.sources.filter((x) => x !== g.primary.sourceId),
+          matchConfidence: g.confidence,
+          deal: deals.get(g.primary.id),
+          rank: {
+            score: Math.round(r.score * 1000) / 1000,
+            /** 1 means undominated: nothing in the set is better on every axis. */
+            paretoLayer: r.paretoLayer,
+            reasons: r.reasons,
+            unknown: r.unknown,
+          },
+        };
+      }),
     ),
   });
 });
+
+/** Days between two ISO timestamps, floored, or null when either is unreadable. */
+function daysBetween(from: string, to: string): number | null {
+  const a = Date.parse(from);
+  const b = Date.parse(to);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.max(0, Math.floor((b - a) / 86_400_000));
+}
+
+/**
+ * Which facet filters are dropping rows for having no value, rather than for
+ * failing the test.
+ *
+ * This is the difference between "no clean-title cars matched" and "no listing
+ * in the index states a title status at all", and a search UI that cannot tell
+ * a user which of those happened is unusable on sparse data.
+ */
+function describeUnknownExclusions(filters: SearchFilters): string[] {
+  const out: string[] = [];
+  for (const [key, f] of Object.entries(filters.facets ?? {})) {
+    const def = FACETS_BY_KEY.get(key);
+    if (!def) continue;
+    if (f.includeUnknown ?? !def.strict) continue;
+    out.push(`${def.label} excludes listings that never state one`);
+  }
+  return out;
+}
+
+/**
+ * What the index actually knows, per attribute.
+ *
+ * The search form is built from this rather than from a hardcoded list, so a
+ * control is never offered as though it works when nothing carries the data.
+ */
+app.get('/api/facets', async (c) => {
+  const q = c.req.query();
+  const coverage = await store.facetCoverage({
+    make: q.make,
+    model: q.model,
+    priceKinds: q.priceKinds ? (q.priceKinds.split(',') as PriceKind[]) : undefined,
+  });
+  return c.json({
+    groups: GROUP_LABELS,
+    facets: coverage,
+    /** Enum vocabularies, so the UI offers the canonical value even at zero coverage. */
+    vocabularies: Object.fromEntries(
+      FACETS.filter((f) => f.values).map((f) => [f.key, f.values]),
+    ),
+  });
+});
+
+/**
+ * The market dashboard for one model.
+ *
+ * Everything here that claims to be about VALUE is computed from completed
+ * sales alone. Asking prices appear only where they are labelled as asks, and
+ * the spread between the two is the headline, because it is the one number this
+ * index can produce and no incumbent publishes.
+ */
+app.get('/api/market', async (c) => {
+  const q = c.req.query();
+  const yearMin = int(q.yearMin) ?? null;
+  const yearMax = int(q.yearMax) ?? null;
+
+  const rows = await store.search({
+    make: q.make,
+    model: q.model,
+    yearMin: yearMin ?? undefined,
+    yearMax: yearMax ?? undefined,
+    facets: parseFacetQuery(q, MARKET_RESERVED),
+    priceKinds: ['ask', 'bid', 'sold'],
+    limit: RANK_POOL,
+  });
+
+  const report = analyzeMarket(rows, {
+    make: q.make ?? null, model: q.model ?? null, yearMin, yearMax,
+  });
+
+  const atMileage = int(q.mileage);
+  return c.json({
+    ...report,
+    /** A price for one specific car, refused rather than guessed out of range. */
+    valuation: atMileage === undefined ? null : valueAtMileage(report.depreciation, atMileage),
+    ownership: atMileage === undefined ? null : forecastOwnership(report.depreciation, atMileage, int(q.milesPerYear) ?? 10_000),
+  });
+});
+
 
 /**
  * Completed sale prices.
@@ -206,24 +413,48 @@ app.post('/api/ask', async (c) => {
     fuelType: q.fuelType,
     text: q.keywords,
     priceKinds: q.priceKinds ?? ['ask'],
-    limit: body.limit ?? 100,
+    limit: RANK_POOL,
     sort: 'price',
   });
   const groups = dedupe(listings);
+  const deals = await rateAll(groups.map((g) => g.primary));
+
+  const ranked = rank(
+    groups.map((g) => {
+      const deal = deals.get(g.primary.id);
+      return {
+        id: g.primary.id,
+        price: g.primary.price,
+        mileage: g.primary.mileage,
+        year: g.primary.year,
+        firstSeen: g.primary.firstSeen,
+        daysOnMarket: daysBetween(g.primary.firstSeen, g.primary.lastSeen),
+        dealPercent: deal && isRated(deal) ? deal.percentVsSold : null,
+        group: g,
+      };
+    }),
+    q.sort,
+  );
+  const page = ranked.ranked.slice(0, body.limit ?? 200);
 
   return c.json({
     asked: text,
     understood: parsed.interpretation,
     parser: parsed.parser,
-    query: q,
-    stats: dedupeStats(listings, groups),
+    query: { ...q, sort: q.sort ?? DEFAULT_SORT },
+    sort: { label: ranked.label, terms: ranked.terms, frontierSize: ranked.frontierSize },
+    stats: { ...dedupeStats(listings, groups), matched: ranked.ranked.length, returned: page.length },
     results: await Promise.all(
-      groups.map(async (g) => ({
-        ...g.primary,
-        daysOnMarket: await store.daysOnMarket(g.primary.id),
-        alsoOn: g.sources.filter((s) => s !== g.primary.sourceId),
-        deal: rateListing(g.primary, await store.soldPricesFor(g.primary.make, g.primary.model, g.primary.year)),
-      })),
+      page.map(async (r) => {
+        const g = r.row.group;
+        return {
+          ...g.primary,
+          daysOnMarket: await store.daysOnMarket(g.primary.id),
+          alsoOn: g.sources.filter((x) => x !== g.primary.sourceId),
+          deal: deals.get(g.primary.id),
+          rank: { score: Math.round(r.score * 1000) / 1000, paretoLayer: r.paretoLayer, reasons: r.reasons, unknown: r.unknown },
+        };
+      }),
     ),
   });
 });

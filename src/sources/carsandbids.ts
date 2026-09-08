@@ -1,4 +1,5 @@
 import type { Listing, SourceAdapter } from '../core/types.js';
+import { makeListing, type ListingDraft } from '../core/listing.js';
 import { getSource } from './registry.js';
 import { evaluateInPage } from '../transport/browser.js';
 import { parseYear, parseMake, parseMileage } from '../core/normalize.js';
@@ -54,7 +55,7 @@ export const carsandbids: SourceAdapter = {
 
   async search(query, ctx) {
     const now = new Date().toISOString();
-    const out = new Map<string, Listing>();
+    const out = new Map<string, ListingDraft>();
     const terms = query.models?.length
       ? query.models.map((m) => `${query.make ?? ''} ${m}`.trim())
       : [query.make ?? query.keywords ?? ''];
@@ -107,6 +108,6 @@ export const carsandbids: SourceAdapter = {
       }
     }
 
-    return [...out.values()];
+    return [...out.values()].map(makeListing);
   },
 };

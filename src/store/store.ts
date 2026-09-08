@@ -1,5 +1,6 @@
 import type { Listing, RejectedListing, PriceKind } from '../core/types.js';
 import type { DedupeGroup } from '../core/dedupe.js';
+import type { FacetFilter } from './filter.js';
 
 /**
  * The storage contract, shared by the SQLite and PostgreSQL implementations.
@@ -29,9 +30,40 @@ export interface SearchFilters {
   bodyType?: string;
   fuelType?: string;
   text?: string;
+  /**
+   * Coarse pre-ordering for the candidate pool only.
+   *
+   * The real ordering is multi-criteria and computed in `core/rank.ts` over the
+   * whole pool, because a percentile taken from a page that SQL already
+   * truncated is a percentile of the wrong population. This exists so that
+   * when the pool cap does bite, it discards the least relevant rows.
+   */
   sort?: 'price' | 'mileage' | 'year' | 'newest' | 'days-on-market';
+  /** Every other attribute, keyed by facet. See core/facets.ts. */
+  facets?: Record<string, FacetFilter>;
   limit?: number;
   offset?: number;
+}
+
+/** How many listings actually publish each facet, and the values they use. */
+export interface FacetCoverage {
+  key: string;
+  column: string;
+  label: string;
+  group: string;
+  kind: string;
+  unit?: string;
+  hint?: string;
+  strict: boolean;
+  /** Rows in scope that carry a value for this facet. */
+  known: number;
+  /** Rows in scope, so the UI can render "412 of 2,118 say". */
+  total: number;
+  /** For enum and text facets: the distinct values, commonest first. */
+  values?: { value: string; n: number }[];
+  /** For number facets. */
+  min?: number | null;
+  max?: number | null;
 }
 
 export interface SoldComps {
@@ -72,6 +104,15 @@ export interface CarStore {
   markDelisted(sourceId: string, seenIds: string[]): Promise<number>;
 
   search(filters?: SearchFilters): Promise<Listing[]>;
+  /**
+   * How many rows in a given scope publish each facet.
+   *
+   * The search form is built from this, so a control for an attribute nothing
+   * in the index carries is shown with its real coverage rather than offered as
+   * if it worked. A filter that would silently empty the page is the failure
+   * mode this exists to prevent.
+   */
+  facetCoverage(filters?: SearchFilters): Promise<FacetCoverage[]>;
   soldComps(make: string, model: string, yearMin: number, yearMax: number): Promise<SoldComps>;
   soldPricesFor(make: string | null, model: string | null, year: number | null, yearWindow?: number): Promise<number[]>;
   priceHistory(listingId: string): Promise<{ observedAt: string; price: number }[]>;

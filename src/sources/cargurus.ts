@@ -1,7 +1,9 @@
 import type { Listing, SearchQuery, SourceAdapter } from '../core/types.js';
+import { makeListing, type ListingDraft } from '../core/listing.js';
 import { getSource } from './registry.js';
 import { evaluateInPage } from '../transport/browser.js';
 import { isRoundedMileage, isValidVin } from '../core/normalize.js';
+import { parseTransmission, parseDrivetrain } from '../core/facets.js';
 
 /**
  * CarGurus.
@@ -45,10 +47,38 @@ interface TileData {
   priceData?: { current?: number; totalPrice?: number };
   ontologyData?: OntologyData;
   pictureData?: { url?: string };
-  exteriorColorData?: { localized?: string };
-  fuelData?: { localizedType?: string };
+  exteriorColorData?: { localized?: string; normalized?: string };
+  interiorColorData?: { localized?: string; normalized?: string };
+  fuelData?: { localizedType?: string; cityEconomy?: number; highwayEconomy?: number; combinedEconomy?: number };
+  evBatteryData?: { batterySize?: number; range?: number; localizedRange?: string };
   localizedDrivetrain?: string;
-  sellerData?: { name?: string; city?: string; state?: string };
+  /** "8-Speed Automatic", "7-Speed Dual Clutch", "6-Speed Manual". */
+  localizedTransmission?: string;
+  /** "4 doors". */
+  localizedDoors?: string;
+  /** "300 hp 2.5L I4". */
+  localizedEngineName?: string;
+  vehicleFeatures?: string[] | { name?: string }[];
+  sellerData?: { name?: string; city?: string; state?: string; rating?: number };
+}
+
+/** "300 hp 2.5L I4" carries a cylinder count and a displacement worth having. */
+function engineFacts(name: string | undefined): { cylinders: number | null; displacementL: number | null } {
+  if (!name) return { cylinders: null, displacementL: null };
+  const cyl = name.match(/\b[IVHWB](\d{1,2})\b/i) ?? name.match(/\b(\d{1,2})[\s-]?cyl/i);
+  const disp = name.match(/\b(\d(?:\.\d)?)\s?L\b/i);
+  return {
+    cylinders: cyl?.[1] ? Number(cyl[1]) : null,
+    displacementL: disp?.[1] ? Number(disp[1]) : null,
+  };
+}
+
+function featureList(v: TileData['vehicleFeatures']): string[] | null {
+  if (!Array.isArray(v) || v.length === 0) return null;
+  const names = v
+    .map((f) => (typeof f === 'string' ? f : f?.name))
+    .filter((f): f is string => typeof f === 'string' && f.length > 0);
+  return names.length ? names : null;
 }
 
 interface Filter {
@@ -100,7 +130,7 @@ export const cargurus: SourceAdapter = {
 
   async search(query, ctx) {
     const now = new Date().toISOString();
-    const out = new Map<string, Listing>();
+    const out = new Map<string, ListingDraft>();
 
     // One seed load populates the code table for every make and model.
     if (!codeTable) {
@@ -170,17 +200,39 @@ export const cargurus: SourceAdapter = {
             sellerType: 'dealer',
             bodyType: o.bodyTypeName ?? null,
             exteriorColor: t.exteriorColorData?.localized ?? null,
+            interiorColor: t.interiorColorData?.localized ?? null,
             fuelType: t.fuelData?.localizedType ?? null,
             eventDate: null,
             imageUrl: t.pictureData?.url ?? null,
+
+            /**
+             * Every tile already carries these. They were previously dropped
+             * into `raw` or discarded, which meant a search could not filter on
+             * a drivetrain the source had literally handed us, and the VIN
+             * decoder was being asked for facts already on the page.
+             */
+            transmission: parseTransmission(t.localizedTransmission),
+            drivetrain: parseDrivetrain(t.localizedDrivetrain),
+            engine: t.localizedEngineName ?? null,
+            ...engineFacts(t.localizedEngineName),
+            doors: t.localizedDoors ? Number(t.localizedDoors.replace(/\D/g, '')) || null : null,
+            mpgCity: t.fuelData?.cityEconomy ?? null,
+            mpgHighway: t.fuelData?.highwayEconomy ?? null,
+            rangeMiles: t.evBatteryData?.range ?? null,
+            batteryKwh: t.evBatteryData?.batterySize ?? null,
+            certified: t.isCpo ?? null,
+            dealerName: seller?.name ?? null,
+            dealerRating: seller?.rating ?? null,
+            options: featureList(t.vehicleFeatures),
+
             firstSeen: now,
             lastSeen: now,
             raw: {
+              // Their rating is kept, never used: it compares a listing to other
+              // asking prices, which is the comparison this project replaces.
               cargurusDealRating: t.dealRating,
               cargurusDaysOnMarket: t.daysOnMarket,
-              isCpo: t.isCpo,
               totalPriceWithFees: t.priceData?.totalPrice,
-              drivetrain: t.localizedDrivetrain,
             },
           });
         }
@@ -191,6 +243,6 @@ export const cargurus: SourceAdapter = {
       }
     }
 
-    return [...out.values()];
+    return [...out.values()].map(makeListing);
   },
 };

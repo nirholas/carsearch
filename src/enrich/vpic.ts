@@ -1,6 +1,7 @@
 import type { Listing } from '../core/types.js';
 import type { CarStore } from '../store/store.js';
 import { isValidVin } from '../core/normalize.js';
+import { parseDrivetrain, parseTransmission } from '../core/facets.js';
 
 /**
  * VIN decoding via NHTSA vPIC. Free, no key, no observed rate limit.
@@ -29,6 +30,68 @@ export interface VinDecode {
   PlantCountry?: string;
   ErrorCode?: string;
   ErrorText?: string;
+
+  /**
+   * The mechanical facets. Every one of these is published by vPIC for free and
+   * by almost no listing site at all, which makes VIN decode the cheapest
+   * source of filterable detail available: one call fills drivetrain, doors,
+   * seats, cylinders, displacement and transmission for a car whose listing
+   * page mentioned none of them.
+   */
+  TransmissionStyle?: string;
+  TransmissionSpeeds?: string;
+  Doors?: string;
+  Seats?: string;
+  EngineHP?: string;
+  EngineModel?: string;
+  Turbo?: string;
+  ElectrificationLevel?: string;
+  BatteryKWh?: string;
+  ChargerLevel?: string;
+  /** Advanced driver-assistance columns, folded into `options`. */
+  AdaptiveCruiseControl?: string;
+  BlindSpotMon?: string;
+  LaneDepartureWarning?: string;
+  LaneKeepSystem?: string;
+  ForwardCollisionWarning?: string;
+  ParkAssist?: string;
+  RearVisibilitySystem?: string;
+  KeylessIgnition?: string;
+  TractionControl?: string;
+  ESC?: string;
+}
+
+const num = (v: string | undefined): number | null => {
+  if (!v) return null;
+  const n = Number(String(v).replace(/[^\d.]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/**
+ * Equipment vPIC reports as fitted.
+ *
+ * "Standard" means the car has it. "Optional" means the trim COULD have it,
+ * which is not the same claim, so only Standard is recorded: an options list
+ * that might be wrong is worse than a short one that is right.
+ */
+const ADAS_FIELDS: [keyof VinDecode, string][] = [
+  ['AdaptiveCruiseControl', 'Adaptive cruise control'],
+  ['BlindSpotMon', 'Blind spot monitor'],
+  ['LaneDepartureWarning', 'Lane departure warning'],
+  ['LaneKeepSystem', 'Lane keep assist'],
+  ['ForwardCollisionWarning', 'Forward collision warning'],
+  ['ParkAssist', 'Parking assist'],
+  ['RearVisibilitySystem', 'Backup camera'],
+  ['KeylessIgnition', 'Keyless ignition'],
+];
+
+export function optionsFromDecode(d: VinDecode): string[] {
+  const out: string[] = [];
+  for (const [field, label] of ADAS_FIELDS) {
+    if (String(d[field] ?? '').toLowerCase().startsWith('standard')) out.push(label);
+  }
+  if (String(d.Turbo ?? '').toLowerCase() === 'yes') out.push('Turbocharged');
+  return out;
 }
 
 export async function decodeVin(vin: string, store?: CarStore): Promise<VinDecode | null> {
@@ -65,6 +128,16 @@ export async function enrichListing(listing: Listing, store?: CarStore): Promise
   const d = await decodeVin(listing.vin, store);
   if (!d || d.ErrorCode?.startsWith('1')) return listing;
 
+  const engine = [
+    d.DisplacementL ? `${Number(d.DisplacementL).toFixed(1)}L` : null,
+    d.EngineCylinders ? `${d.EngineCylinders}-cyl` : null,
+    String(d.Turbo ?? '').toLowerCase() === 'yes' ? 'turbo' : null,
+    d.EngineHP ? `${Math.round(Number(d.EngineHP))} hp` : null,
+  ].filter(Boolean).join(' ');
+
+  const options = optionsFromDecode(d);
+  const electrified = String(d.ElectrificationLevel ?? '').toLowerCase();
+
   return {
     ...listing,
     year: listing.year ?? (d.ModelYear ? Number(d.ModelYear) : null),
@@ -74,7 +147,27 @@ export async function enrichListing(listing: Listing, store?: CarStore): Promise
     series: d.Series ?? listing.series,
     bodyType: listing.bodyType ?? d.BodyClass ?? null,
     fuelType: listing.fuelType ?? d.FuelTypePrimary ?? null,
-  };
+
+    // The listing's own words win where it spoke; vPIC fills the silence.
+    drivetrain: listing.drivetrain ?? parseDrivetrain(d.DriveType),
+    transmission: listing.transmission ?? parseTransmission(
+      [d.TransmissionStyle, d.TransmissionSpeeds ? `${d.TransmissionSpeeds}-speed` : ''].join(' '),
+    ),
+    cylinders: listing.cylinders ?? num(d.EngineCylinders),
+    displacementL: listing.displacementL ?? num(d.DisplacementL),
+    doors: listing.doors ?? num(d.Doors),
+    seats: listing.seats ?? num(d.Seats),
+    engine: listing.engine ?? (engine || null),
+    batteryKwh: listing.batteryKwh ?? num(d.BatteryKWh),
+    // vPIC names the assembly plant's country, which is the only import signal
+    // available for free. It is a manufacturing fact, not a title brand.
+    isImport: listing.isImport ?? (d.PlantCountry ? !/united states/i.test(d.PlantCountry) : null),
+
+    options: listing.options ?? (options.length ? options : null),
+    ...(electrified.includes('bev') || electrified.includes('phev')
+      ? { fuelType: listing.fuelType ?? (electrified.includes('bev') ? 'Electric' : 'Hybrid') }
+      : {}),
+  } as Listing;
 }
 
 /** Enriches a batch with a small concurrency cap, since vPIC is a shared public service. */

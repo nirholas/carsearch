@@ -15,6 +15,9 @@
  * comparable cars actually SOLD for, not against what other sellers are asking.
  */
 
+import { loadFacets, currentFacetParams, activeFacetCount, clearFacets } from './facets.js';
+import { loadDashboard } from './dashboard.js';
+
 const $ = (s) => document.querySelector(s);
 const money = (n) => (n === null || n === undefined ? '-' : '$' + Number(n).toLocaleString('en-US'));
 const num = (n) => (n === null || n === undefined ? '-' : Number(n).toLocaleString('en-US'));
@@ -35,13 +38,17 @@ let activeSource = 'all';
 
 /* ------------------------------------------------------------------ routing */
 
-const VIEWS = { home: '#view-home', results: '#view-results', auctions: '#view-auctions', sources: '#view-sources' };
+const VIEWS = {
+  home: '#view-home', results: '#view-results', dashboard: '#view-dashboard',
+  auctions: '#view-auctions', sources: '#view-sources',
+};
 
 function show(route) {
   for (const [name, sel] of Object.entries(VIEWS)) $(sel).hidden = name !== route;
   for (const a of document.querySelectorAll('.topnav a')) a.classList.toggle('active', a.dataset.route === route);
   if (route === 'sources') loadSources();
   if (route === 'auctions') loadAuctions();
+  if (route === 'dashboard') runDashboard();
 }
 
 function routeFromHash() {
@@ -71,6 +78,36 @@ function dealBadge(deal) {
   const label = { great: 'GREAT DEAL', good: 'GOOD DEAL', fair: 'FAIR PRICE', high: 'ABOVE MARKET', overpriced: 'OVERPRICED' }[deal.grade];
   return `<div><span class="deal ${deal.grade}" title="${esc(deal.explanation)}">${label}</span>
           <span class="deal-why">${esc(deal.explanation)}</span></div>`;
+}
+
+/**
+ * Why this car is where it is in the list.
+ *
+ * A ranked list that cannot explain itself is a black box, and a buyer has no
+ * reason to trust the order. Every ranked dimension reports the car's actual
+ * position on it, which is checkable against the list itself.
+ */
+function rankBadges(r) {
+  const rank = r.rank;
+  if (!rank) return '';
+  const parts = [];
+
+  /**
+   * Layer 1 means nothing in the whole result set beats this car on every
+   * ranked dimension at once. That is a stronger, weighting-free claim than any
+   * score, so it gets the badge.
+   */
+  if (rank.paretoLayer === 1) {
+    parts.push(`<span class="frontier" title="Nothing in these results beats it on every thing you ranked by">BEST OF BOTH</span>`);
+  }
+  for (const reason of rank.reasons ?? []) {
+    if (reason.position === null) continue;
+    parts.push(`<span class="rank-reason">#${reason.position} ${esc(reason.label)} <span class="of">of ${reason.outOf}</span></span>`);
+  }
+  for (const key of rank.unknown ?? []) {
+    parts.push(`<span class="rank-reason unknown" title="Ranked last on this because the listing never states it">no ${esc(key)} stated</span>`);
+  }
+  return parts.length ? `<div class="rankline">${parts.join('')}</div>` : '';
 }
 
 function card(r) {
@@ -110,6 +147,7 @@ function card(r) {
         ${r.eventDate ? `<span>${esc(r.eventDate)}</span>` : ''}
       </div>
       <div class="badges">${badges}</div>
+      ${rankBadges(r)}
     </div>
     <div class="price">
       <div class="amount ${kindClass}">${money(r.price)}</div>
@@ -159,6 +197,9 @@ function syncFilters(q) {
   if (!q) return;
   const set = (id, v) => { const el = $('#f-' + id); if (el) el.value = v ?? ''; };
   set('make', q.make); set('model', q.models ? q.models[0] : q.model);
+  // The sentence box may have asked for an ordering. Reflect it in the control,
+  // so the user can see what was understood and change it.
+  if (q.sort && $('#f-sort')) $('#f-sort').value = q.sort;
   set('yearMin', q.yearMin); set('yearMax', q.yearMax);
   set('priceMin', q.priceMin); set('priceMax', q.priceMax); set('mileageMax', q.mileageMax);
   const kinds = q.priceKinds ?? ['ask'];
@@ -192,7 +233,7 @@ async function loadComps(make, model, yearMin, yearMax) {
 /* ------------------------------------------------------------------ actions */
 
 function readFilters() {
-  const f = {};
+  const f = { ...currentFacetParams() };
   for (const id of FILTER_IDS) { const v = $('#f-' + id)?.value.trim(); if (v) f[id] = v; }
   const kinds = [];
   if ($('#k-ask').checked) kinds.push('ask');
@@ -218,7 +259,7 @@ async function runSearch(question) {
     if (question) {
       const res = await fetch('/api/ask', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: question, limit: 300 }),
+        body: JSON.stringify({ q: question, limit: 300, sort: $('#f-sort')?.value || undefined }),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       data = await res.json();
@@ -232,10 +273,19 @@ async function runSearch(question) {
 
     lastResults = data.results ?? [];
     const s = data.stats ?? {};
+    const sortInfo = data.sort ?? {};
     $('#summary').hidden = false;
     $('#summary').innerHTML =
       `<strong>${s.uniqueVehicles ?? lastResults.length}</strong> unique vehicles from <strong>${s.rawListings ?? lastResults.length}</strong> listings. ` +
-      `${s.duplicatesRemoved ?? 0} duplicates collapsed, ${s.crossSourceGroups ?? 0} of them listed on more than one site.`;
+      `${s.duplicatesRemoved ?? 0} duplicates collapsed, ${s.crossSourceGroups ?? 0} of them listed on more than one site.` +
+      (sortInfo.label ? ` <span class="sortline">Ranked by <strong>${esc(sortInfo.label.toLowerCase())}</strong>` +
+        (sortInfo.frontierSize ? `, ${sortInfo.frontierSize} of them beaten by nothing on every axis` : '') + '.</span>' : '') +
+      // Two honesty flags. Both describe results the user cannot otherwise see
+      // are missing, which is the failure mode of facet search on sparse data.
+      ((s.excludedForUnknown ?? []).length
+        ? `<span class="warnline">${s.excludedForUnknown.map(esc).join('. ')}.</span>` : '') +
+      (s.poolTruncated
+        ? `<span class="warnline">More than ${s.poolCap} listings matched, so the ranking saw the first ${s.poolCap}. Narrow the search to rank the whole set.</span>` : '');
 
     if (lastResults.length === 0) {
       $('#list').innerHTML = `<div class="state">
@@ -249,7 +299,15 @@ async function runSearch(question) {
     renderSourceTabs(lastResults);
     paintList();
     const q = data.query ?? readFilters();
-    loadComps(q.make || lastResults[0]?.make, (q.models && q.models[0]) || q.model || lastResults[0]?.model, q.yearMin, q.yearMax);
+    const make = q.make || lastResults[0]?.make;
+    const model = (q.models && q.models[0]) || q.model || lastResults[0]?.model;
+    loadComps(make, model, q.yearMin, q.yearMax);
+    // Coverage is scoped to what is on screen: "412 of 2,259" is a different
+    // and less useful claim than "412 of the 266 Macans in these results".
+    loadFacets($('#facet-panel'), { make, model }, () => runSearch());
+    // Carry the search across, so the market view opens on the car just looked at.
+    if (make) $('#d-make').value = make;
+    if (model) $('#d-model').value = model;
   } catch (e) {
     $('#list').innerHTML = `<div class="state"><h3>Could not reach the API</h3>
       <p>${esc(e.message)}</p><p>Start it with <code>npm run serve</code>.</p></div>`;
@@ -492,9 +550,13 @@ $('#search').addEventListener('submit', (e) => { e.preventDefault(); runSearch($
 $('#apply').addEventListener('click', () => { $('#q').value = ''; runSearch(''); });
 $('#reset').addEventListener('click', () => {
   for (const id of FILTER_IDS) { const el = $('#f-' + id); if (el) el.value = ''; }
+  clearFacets();
   $('#q').value = '';
   runSearch('');
 });
+// Changing the ranking re-runs immediately. Re-ranking is not a filter change,
+// so making the user press Apply for it reads as though nothing happened.
+$('#f-sort').addEventListener('change', () => runSearch($('#q').value.trim() || ''));
 $('#save-search').addEventListener('click', () => {
   const q = $('#q').value.trim();
   if (!q) return;
@@ -504,6 +566,84 @@ $('#save-search').addEventListener('click', () => {
   renderPanels();
 });
 $('#clear-saved').addEventListener('click', () => { writeList(SAVED_KEY, []); renderPanels(); });
+
+/* ---------------------------------------------------------------- dashboard */
+
+/**
+ * The market view.
+ *
+ * Scoped to a make and model rather than the whole index on purpose: a
+ * depreciation curve fitted across every car ever listed describes nothing. It
+ * seeds itself from whatever the user last searched, so arriving here after a
+ * search shows the market for that car rather than an empty form.
+ */
+async function runDashboard() {
+  const scope = {
+    make: $('#d-make').value.trim(),
+    model: $('#d-model').value.trim(),
+    yearMin: $('#d-yearMin').value.trim(),
+    yearMax: $('#d-yearMax').value.trim(),
+    mileage: $('#d-mileage').value.trim(),
+  };
+  await loadDashboard(scope);
+  renderValuation(scope);
+}
+
+/**
+ * A price for one specific car, and what holding it is likely to cost.
+ *
+ * Rendered only when the fit supports it. `confidence: 'none'` means the asked
+ * mileage sits far outside the range the curve was fitted over, and the answer
+ * there is to say so, not to extrapolate a number a buyer might act on.
+ */
+async function renderValuation(scope) {
+  const el = $('#valuation');
+  if (!scope.mileage) { el.hidden = true; return; }
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(scope)) if (v) params.set(k, v);
+  try {
+    const d = await (await fetch('/api/market?' + params)).json();
+    if (!d.valuation) {
+      el.hidden = false;
+      el.innerHTML = `<div class="val-empty">No completed sale for this model carries a mileage, so there is
+        nothing to fit a value against. This is left blank rather than estimated.</div>`;
+      return;
+    }
+    const v = d.valuation;
+    const o = d.ownership;
+    el.hidden = false;
+    el.innerHTML = `
+      <div class="val-head">
+        <div>
+          <div class="val-k">A ${num(Number(scope.mileage))}-mile example is worth about</div>
+          <div class="val-v ${v.confidence}">${money(v.price)}</div>
+          <div class="val-n">${esc(v.basis)}</div>
+        </div>
+        <span class="conf ${v.confidence}">${
+          v.confidence === 'good' ? 'well supported'
+          : v.confidence === 'weak' ? 'thin evidence'
+          : 'outside the data'}</span>
+      </div>
+      ${v.extrapolatedBy > 0
+        ? `<p class="val-warn">That mileage is ${num(v.extrapolatedBy)} miles outside the range these sales cover.
+           The curve is being extended past its evidence, so treat the figure as a shape, not a price.</p>` : ''}
+      ${o ? `<div class="val-forecast">
+        <div class="val-k">Depreciation from here, at ${num(o.milesPerYear)} miles a year</div>
+        <div class="forecast-row">${o.years.map((y) => `<div class="fy">
+          <span class="fy-y">year ${y.year}</span>
+          <span class="fy-v">${money(y.value)}</span>
+          <span class="fy-d">-${money(y.lostThisYear)}</span>
+        </div>`).join('')}</div>
+        <p class="hint">${esc(o.basis)}</p>
+      </div>` : ''}`;
+  } catch (e) {
+    el.hidden = false;
+    el.innerHTML = `<div class="val-empty">Could not compute a valuation: ${esc(e.message)}</div>`;
+  }
+}
+
+$('#dash-form').addEventListener('submit', (e) => { e.preventDefault(); runDashboard(); });
+window.addEventListener('carsearch:redraw', () => runDashboard());
 
 document.addEventListener('keydown', (e) => {
   if (e.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {

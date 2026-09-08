@@ -17,3 +17,6 @@ data/*.sqlite
 data/probe-*.json
 data/run-*.json
 data/run-*.log
+
+# Playwright screenshots from UI verification runs.
+data/ui-*.png

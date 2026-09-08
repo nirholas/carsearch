@@ -4,27 +4,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdirSync } from 'node:fs';
 import type { Listing, RejectedListing, PriceKind } from '../core/types.js';
+import { FACETS } from '../core/facets.js';
+import { buildFacetPredicates } from './filter.js';
+import { INSERT_COLUMNS, insertValues, updateAssignments, rowToListing, sqliteMigrations } from './columns.js';
 import type { DedupeGroup } from '../core/dedupe.js';
+import type { SearchFilters, FacetCoverage } from './store.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-export interface SearchFilters {
-  make?: string;
-  model?: string;
-  yearMin?: number;
-  yearMax?: number;
-  priceMin?: number;
-  priceMax?: number;
-  mileageMax?: number;
-  priceKinds?: PriceKind[];
-  sourceIds?: string[];
-  bodyType?: string;
-  fuelType?: string;
-  text?: string;
-  sort?: 'price' | 'mileage' | 'year' | 'newest' | 'days-on-market';
-  limit?: number;
-  offset?: number;
-}
+export type { SearchFilters, FacetCoverage } from './store.js';
 
 export class Store {
   private db: Database.Database;
@@ -33,6 +21,10 @@ export class Store {
     mkdirSync(dirname(path), { recursive: true });
     this.db = new Database(path);
     this.db.exec(readFileSync(join(here, 'schema.sql'), 'utf8'));
+    const existing = new Set(
+      (this.db.prepare('PRAGMA table_info(listings)').all() as { name: string }[]).map((r) => r.name),
+    );
+    for (const sql of sqliteMigrations(existing)) this.db.exec(sql);
   }
 
   close(): void {
@@ -53,64 +45,28 @@ export class Store {
       .get(l.id) as { id: string; price: number | null; first_seen: string } | undefined;
 
     const firstSeen = existing?.first_seen ?? l.firstSeen ?? now;
+    const cols = INSERT_COLUMNS;
 
     this.db
       .prepare(
-        `INSERT INTO listings (
-           id, source_id, source_listing_id, url, title, year, make, model, trim, series,
-           vin, price, price_kind, currency, mileage, mileage_is_rounded,
-           location, seller_type, body_type, exterior_color, fuel_type,
-           event_date, image_url, first_seen, last_seen, raw
-         ) VALUES (
-           @id, @sourceId, @sourceListingId, @url, @title, @year, @make, @model, @trim, @series,
-           @vin, @price, @priceKind, @currency, @mileage, @mileageIsRounded,
-           @location, @sellerType, @bodyType, @exteriorColor, @fuelType,
-           @eventDate, @imageUrl, @firstSeen, @lastSeen, @raw
-         )
-         ON CONFLICT(id) DO UPDATE SET
-           url = excluded.url, title = excluded.title, price = excluded.price,
-           mileage = excluded.mileage, trim = excluded.trim, series = excluded.series,
-           vin = COALESCE(excluded.vin, listings.vin),
-           location = excluded.location, image_url = excluded.image_url,
-           last_seen = excluded.last_seen, delisted_at = NULL, raw = excluded.raw`,
+        `INSERT INTO listings (${cols.join(', ')}, first_seen, last_seen)
+         VALUES (${cols.map(() => '?').join(', ')}, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET ${updateAssignments('listings')},
+           last_seen = excluded.last_seen, delisted_at = NULL`,
       )
-      .run({
-        id: l.id,
-        sourceId: l.sourceId,
-        sourceListingId: l.sourceListingId,
-        url: l.url,
-        title: l.title,
-        year: l.year,
-        make: l.make,
-        model: l.model,
-        trim: l.trim,
-        series: l.series,
-        vin: l.vin,
-        price: l.price,
-        priceKind: l.priceKind,
-        currency: l.currency,
-        mileage: l.mileage,
-        mileageIsRounded: l.mileageIsRounded ? 1 : 0,
-        location: l.location,
-        sellerType: l.sellerType,
-        bodyType: l.bodyType,
-        exteriorColor: l.exteriorColor,
-        fuelType: l.fuelType,
-        eventDate: l.eventDate,
-        imageUrl: l.imageUrl,
+      .run(
+        ...insertValues(l).map((v) => (typeof v === 'boolean' ? (v ? 1 : 0) : (v as string | number | null))),
         firstSeen,
-        lastSeen: now,
-        raw: l.raw ? JSON.stringify(l.raw) : null,
-      });
+        now,
+      );
 
-    const priceChanged = l.price !== null && existing?.price !== l.price;
+    const priceChanged = l.price !== null && existing !== undefined && existing.price !== l.price;
     if (l.price !== null && (!existing || priceChanged)) {
       this.db
         .prepare('INSERT OR IGNORE INTO price_points (listing_id, observed_at, price) VALUES (?, ?, ?)')
         .run(l.id, now, l.price);
     }
-
-    return { inserted: !existing, priceChanged: Boolean(priceChanged) };
+    return { inserted: !existing, priceChanged };
   }
 
   upsertMany(listings: Listing[]): { inserted: number; updated: number; priceChanges: number } {
@@ -197,6 +153,13 @@ export class Store {
       f.sourceIds.forEach((s, i) => { params[`src${i}`] = s; });
     }
 
+    let facetParam = 0;
+    const bindFacet = (v: unknown) => {
+      const name = `fc${facetParam++}`;
+      params[name] = typeof v === 'boolean' ? (v ? 1 : 0) : (v as string | number);
+      return `@${name}`;
+    };
+    for (const pred of buildFacetPredicates(f.facets, bindFacet)) where.push(pred.sql);
     const order =
       f.sort === 'mileage' ? 'mileage ASC'
       : f.sort === 'year' ? 'year DESC'
@@ -218,6 +181,39 @@ export class Store {
    * Comparable completed sales for a vehicle. This is the number no incumbent
    * shows: every one of them displays asking prices only.
    */
+  facetCoverage(f: SearchFilters = {}): FacetCoverage[] {
+    const where: string[] = ['delisted_at IS NULL'];
+    const params: unknown[] = [];
+    const p = (v: unknown) => { params.push(v); return '?'; };
+    if (f.make) where.push(`LOWER(make) = LOWER(${p(f.make)})`);
+    if (f.model) where.push(`LOWER(model) LIKE LOWER(${p(`%${f.model}%`)})`);
+    if (f.priceKinds?.length) where.push(`price_kind IN (${f.priceKinds.map((k) => p(k)).join(',')})`);
+    const scope = where.join(' AND ');
+
+    const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM listings WHERE ${scope}`).get(...params) as { n: number }).n;
+    const knownSelect = FACETS.map((x) => `COUNT(${x.column}) AS "${x.key}"`).join(', ');
+    const known = this.db.prepare(`SELECT ${knownSelect} FROM listings WHERE ${scope}`).get(...params) as Record<string, number>;
+
+    return FACETS.map((def) => {
+      const base: FacetCoverage = {
+        key: def.key, column: def.column, label: def.label, group: def.group, kind: def.kind,
+        unit: def.unit, hint: def.hint, strict: Boolean(def.strict),
+        known: known[def.key] ?? 0, total,
+      };
+      if (base.known === 0) return base;
+      if (def.kind === 'number') {
+        const r = this.db.prepare(`SELECT MIN(${def.column}) AS lo, MAX(${def.column}) AS hi FROM listings WHERE ${scope}`)
+          .get(...params) as { lo: number | null; hi: number | null };
+        return { ...base, min: r.lo, max: r.hi };
+      }
+      const rows = this.db.prepare(
+        `SELECT ${def.column} AS value, COUNT(*) AS n FROM listings
+         WHERE ${scope} AND ${def.column} IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 40`,
+      ).all(...params) as { value: string; n: number }[];
+      return { ...base, values: rows.map((x) => ({ value: String(x.value), n: x.n })) };
+    });
+  }
+
   soldComps(make: string, model: string, yearMin: number, yearMax: number) {
     const rows = this.db
       .prepare(
@@ -312,33 +308,3 @@ export class Store {
   }
 }
 
-function rowToListing(r: Record<string, unknown>): Listing {
-  return {
-    id: r.id as string,
-    sourceId: r.source_id as string,
-    sourceListingId: (r.source_listing_id as string) ?? null,
-    url: (r.url as string) ?? null,
-    title: r.title as string,
-    year: (r.year as number) ?? null,
-    make: (r.make as string) ?? null,
-    model: (r.model as string) ?? null,
-    trim: (r.trim as string) ?? null,
-    series: (r.series as string) ?? null,
-    vin: (r.vin as string) ?? null,
-    price: (r.price as number) ?? null,
-    priceKind: r.price_kind as PriceKind,
-    currency: r.currency as string,
-    mileage: (r.mileage as number) ?? null,
-    mileageIsRounded: Boolean(r.mileage_is_rounded),
-    location: (r.location as string) ?? null,
-    sellerType: (r.seller_type as Listing['sellerType']) ?? null,
-    bodyType: (r.body_type as string) ?? null,
-    exteriorColor: (r.exterior_color as string) ?? null,
-    fuelType: (r.fuel_type as string) ?? null,
-    eventDate: (r.event_date as string) ?? null,
-    imageUrl: (r.image_url as string) ?? null,
-    firstSeen: r.first_seen as string,
-    lastSeen: r.last_seen as string,
-    raw: r.raw ? (JSON.parse(r.raw as string) as Record<string, unknown>) : undefined,
-  };
-}

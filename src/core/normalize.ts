@@ -1,4 +1,5 @@
 import type { Listing, RejectedListing } from './types.js';
+import { loadVocabulary } from '../nl/vocabulary.js';
 
 /**
  * Normalization and plausibility.
@@ -77,6 +78,78 @@ export function parseMake(title: string): string | null {
  * Cabriolet, 1,000 mi, $25,476" whose real comparables were $185,069 and
  * $243,475. The figure was a monthly payment or a stale field.
  */
+/**
+ * Reads the model out of a listing title.
+ *
+ * Needed because sources lie about this field in a specific, damaging way: some
+ * repeat the make in it. An import arrived with 147 Ferraris all carrying
+ * `model: "Ferrari"`, which collapsed a California, a 488 and an 812 Superfast
+ * into one peer group whose median was $709,000, and the plausibility check
+ * then rejected the California as a parse error. A model field that is really
+ * the make is worse than an empty one, so both are treated as absent and the
+ * title is re-read.
+ *
+ * The catalogue is consulted first, then the token after the make, which covers
+ * models the vPIC catalogue spells differently from the seller.
+ */
+export function parseModel(title: string, make: string | null): string | null {
+  if (!title) return null;
+  const text = title.toLowerCase();
+  const makeLower = make?.toLowerCase() ?? null;
+
+  if (makeLower) {
+    const catalogue = loadVocabulary().models[makeLower] ?? [];
+    // Longest first, so "Land Cruiser" is not read as "Land" and "911 Turbo"
+    // does not lose to "911".
+    const hit = [...catalogue]
+      .sort((a, b) => b.length - a.length)
+      .find((m) => new RegExp(`\\b${m.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text));
+    if (hit) return hit;
+  }
+
+  // Fall back to the word after the make, minus a leading year.
+  const stripped = title.replace(/^\s*(19|20)\d{2}\s+/, '');
+  const afterMake = makeLower && stripped.toLowerCase().startsWith(makeLower)
+    ? stripped.slice(makeLower.length).trim()
+    : stripped;
+  const token = afterMake.split(/[\s,/]+/).find((w) => w.length > 0 && w.toLowerCase() !== makeLower);
+  if (!token) return null;
+
+  // "Base", "AWD" and the like are trim noise, not a model.
+  if (/^(base|awd|rwd|4wd|fwd|coupe|sedan|suv|convertible|cabriolet|spider|spyder|roadster|wagon|used|new)$/i.test(token)) {
+    return null;
+  }
+  return token.replace(/[^A-Za-z0-9-]/g, '') || null;
+}
+
+/**
+ * The model as it should be stored, given what the source claimed.
+ *
+ * A model equal to the make is the source giving up, and is discarded.
+ */
+/**
+ * One spelling per model.
+ *
+ * Sources disagree on case, and the index carried "Macan" and "macan" as two
+ * values: they split every facet count, every peer group and every comps
+ * lookup, while looking like one model to a reader. Alphanumeric model
+ * designations (911, GT-R, MX-5) keep their own casing because title-casing
+ * them produces nonsense.
+ */
+export function canonicalModel(model: string | null): string | null {
+  const m = model?.trim();
+  if (!m) return null;
+  if (/\d/.test(m) || m === m.toUpperCase()) return m;
+  return m.replace(/\b[a-z]/g, (c) => c.toUpperCase());
+}
+
+export function resolveModel(title: string, make: string | null, claimed: string | null): string | null {
+  const bad = !claimed
+    || (make !== null && claimed.trim().toLowerCase() === make.trim().toLowerCase())
+    || claimed.trim().length === 0;
+  return bad ? parseModel(title, make) : claimed;
+}
+
 export function parseMoney(text: string | null | undefined): number | null {
   if (!text) return null;
   const m = text.replace(/,/g, '').match(/\$?\s*(\d{3,})/);
@@ -182,13 +255,24 @@ export interface ValidationResult {
  * caught by reading a rejects file with a `why` field.
  */
 export function validate(listings: Listing[]): ValidationResult {
+  /**
+   * Repair the model field BEFORE building peer groups. The plausibility check
+   * is only as good as its peer definition, and a batch where the model column
+   * holds the make silently merges every car of that marque into one group.
+   */
+  const repaired = listings.map((l) => {
+    const fixed = canonicalModel(resolveModel(l.title, l.make, l.model));
+    const series = l.series?.trim() ? l.series.trim() : null;
+    return fixed === l.model && series === l.series ? l : { ...l, model: fixed, series };
+  });
+
   const model = new PlausibilityModel();
-  for (const l of listings) model.observe(l);
+  for (const l of repaired) model.observe(l);
 
   const kept: Listing[] = [];
   const rejected: RejectedListing[] = [];
 
-  for (const l of listings) {
+  for (const l of repaired) {
     const why =
       !l.title ? 'missing title'
       : isNonVehicle(l.title) ? 'not a vehicle (memorabilia or parts)'

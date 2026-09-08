@@ -1,4 +1,6 @@
 import type { Listing, SearchQuery, SourceAdapter } from '../core/types.js';
+import { makeListing, type ListingDraft } from '../core/listing.js';
+import { parseDrivetrain } from '../core/facets.js';
 import { getSource } from './registry.js';
 import { evaluateInPage } from '../transport/browser.js';
 import { isRoundedMileage, isValidVin } from '../core/normalize.js';
@@ -35,6 +37,10 @@ interface VehicleDetails {
   stockType?: string;
   primaryThumbnail?: string;
   seller?: { dealerName?: string; zip?: string };
+  exteriorColor?: string | null;
+  /** Cars.com's manufacturer-certified flag. */
+  cpoIndicator?: boolean | null;
+  shipPrice?: number | string | null;
 }
 
 const EXTRACT = (): VehicleDetails[] =>
@@ -76,7 +82,7 @@ export const carscom: SourceAdapter = {
 
   async search(query, ctx) {
     const now = new Date().toISOString();
-    const out = new Map<string, Listing>();
+    const out = new Map<string, ListingDraft>();
     const models = query.models?.length ? query.models : [undefined];
 
     for (const model of models) {
@@ -118,13 +124,26 @@ export const carscom: SourceAdapter = {
             location: v.seller?.zip ? `${v.seller.dealerName ?? 'dealer'} (${v.seller.zip})` : (v.seller?.dealerName ?? null),
             sellerType: 'dealer',
             bodyType: v.bodyStyle ?? null,
-            exteriorColor: null,
+            exteriorColor: v.exteriorColor ?? null,
             fuelType: v.fuelType ?? null,
             eventDate: null,
             imageUrl: v.primaryThumbnail ?? null,
+
+            /**
+             * The card's own JSON already carries these. They were being
+             * dropped into `raw` where nothing could filter on them, which made
+             * the index ask a VIN decoder for a drivetrain the page had handed
+             * us in plain text.
+             */
+            drivetrain: parseDrivetrain(v.drivetrain),
+            certified: v.cpoIndicator ?? null,
+            dealerName: v.seller?.dealerName ?? null,
+
             firstSeen: now,
             lastSeen: now,
-            raw: { drivetrain: v.drivetrain, stockType: v.stockType, msrp: v.msrp },
+            // `stockType` is Cars.com's new/used/certified flag and `msrp` is
+            // the sticker, neither of which is an asking price. Kept, not used.
+            raw: { stockType: v.stockType, msrp: v.msrp, shipPrice: v.shipPrice },
           });
         }
         ctx.log(`carscom ${(model ?? 'all').padEnd(14)} +${String(rows.length).padStart(3)} (pool ${out.size})`);
@@ -133,6 +152,6 @@ export const carscom: SourceAdapter = {
       }
     }
 
-    return [...out.values()];
+    return [...out.values()].map(makeListing);
   },
 };

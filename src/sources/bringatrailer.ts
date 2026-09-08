@@ -1,4 +1,5 @@
 import type { Listing, SearchQuery, SourceAdapter } from '../core/types.js';
+import { makeListing, type ListingDraft } from '../core/listing.js';
 import { getSource } from './registry.js';
 import { evaluateInPage } from '../transport/browser.js';
 import { parseYear, parseMake } from '../core/normalize.js';
@@ -77,7 +78,7 @@ export const bringatrailer: SourceAdapter = {
 
   async search(query, ctx) {
     const now = new Date().toISOString();
-    const out = new Map<string, Listing>();
+    const out = new Map<string, ListingDraft>();
 
     for (const path of paths(query)) {
       const url = `https://bringatrailer.com/${path}/`;
@@ -130,6 +131,6 @@ export const bringatrailer: SourceAdapter = {
       }
     }
 
-    return [...out.values()];
+    return [...out.values()].map(makeListing);
   },
 };
