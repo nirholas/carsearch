@@ -21,6 +21,30 @@ function titleCase(s: string): string {
   return s.trim().toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }
 
+/**
+ * Coerces whatever a source handed us into a string, or null.
+ *
+ * These functions are called with values straight off a JSON payload, and a
+ * field that is a string on one site is an object on another: duPont Registry
+ * returns an object where every other source returns a colour name, and the
+ * adapter died on `raw?.trim is not a function` before a single row was read.
+ * A normalizer that crashes on an unexpected shape takes the whole source down
+ * with it, which is a poor trade for a field nobody filters on.
+ */
+function asText(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'string') return raw.trim() || null;
+  if (typeof raw === 'number') return String(raw);
+  if (typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    for (const key of ['name', 'value', 'label', 'text', 'description']) {
+      const v = o[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  }
+  return null;
+}
+
 const BODY_TYPES: [RegExp, string][] = [
   [/\b(pickup|truck|crew ?cab|reg(ular)? ?cab|ext(ended)? ?cab)\b/i, 'Truck'],
   [/\b(sport ?utility|suv|mpv|multipurpose|crossover|cuv)\b/i, 'SUV'],
@@ -43,8 +67,8 @@ const BODY_TYPES: [RegExp, string][] = [
  */
 const NOT_A_BODY_STYLE = /^(automobile|vehicle|car|passenger|other|unknown|n\/?a|none)$/i;
 
-export function canonicalBodyType(raw: string | null | undefined): string | null {
-  const s = raw?.trim();
+export function canonicalBodyType(raw: unknown): string | null {
+  const s = asText(raw);
   if (!s || NOT_A_BODY_STYLE.test(s)) return null;
   for (const [pattern, canonical] of BODY_TYPES) if (pattern.test(s)) return canonical;
   return titleCase(s);
@@ -66,8 +90,8 @@ const FUEL_TYPES: [RegExp, string][] = [
 const PETROL = /\b(premium|regular|midgrade|mid[\s-]?grade|unleaded|gasoline|petrol|gas)\b/i;
 const ELECTRIC = /\b(electric|electricity|bev)\b/i;
 
-export function canonicalFuelType(raw: string | null | undefined): string | null {
-  const s = raw?.trim();
+export function canonicalFuelType(raw: unknown): string | null {
+  const s = asText(raw);
   if (!s) return null;
 
   /**
@@ -108,16 +132,16 @@ const COLOUR_FAMILIES: [RegExp, string][] = [
   [/\b(pink|rose)\b/i, 'Pink'],
 ];
 
-export function canonicalColor(raw: string | null | undefined): string | null {
-  const s = raw?.trim();
+export function canonicalColor(raw: unknown): string | null {
+  const s = asText(raw);
   if (!s) return null;
   for (const [pattern, family] of COLOUR_FAMILIES) if (pattern.test(s)) return family;
   return titleCase(s);
 }
 
 /** A blank string is not a value, and neither is a value that is only punctuation. */
-export function blankToNull(raw: string | null | undefined): string | null {
-  const s = raw?.trim();
+export function blankToNull(raw: unknown): string | null {
+  const s = asText(raw);
   if (!s) return null;
   return /[a-z0-9]/i.test(s) ? s : null;
 }

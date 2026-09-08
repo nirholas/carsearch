@@ -354,3 +354,19 @@ test('a branded title exempts a low price from the age floor', () => {
   // A clean title is not an excuse for an impossible price.
   assert.equal(isImpossiblePriceForAge('2020 PORSCHE MACAN S', 2000, y - 6, 'clean'), true);
 });
+
+test('a canonicalizer never crashes on an unexpected shape', async () => {
+  const { canonicalColor, canonicalBodyType, blankToNull } = await import('../src/core/canonical.js');
+  // duPont Registry returns an object where every other source returns a
+  // string, and the adapter died on `raw?.trim is not a function` before it
+  // read a single row. A normalizer that throws takes the whole source down.
+  assert.equal(canonicalColor({ name: 'Guards Red' }), 'Red');
+  assert.equal(canonicalColor({ value: 'Jet Black' }), 'Black');
+  assert.equal(canonicalColor(['Blue']), null, 'an array is not a colour');
+  // A stray number is tidied rather than thrown, and matches no colour family.
+  assert.equal(canonicalColor(42), '42');
+  assert.equal(canonicalBodyType({ name: 'Sport Utility' }), 'SUV');
+  assert.equal(blankToNull({ name: '  ' }), null);
+  assert.equal(canonicalColor(null), null);
+  assert.equal(canonicalColor(undefined), null);
+});
