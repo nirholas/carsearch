@@ -518,3 +518,262 @@ th { color: var(--muted); font-weight: 600; font-size: 10.5px; text-transform: u
   .dash-controls label { flex: 1 1 100%; }
   .dash { padding: 14px 12px 48px; }
 }
+
+/* ======================================================= results, redesigned ==
+   The previous card gave a 148px thumbnail a third of the width and left the
+   middle column empty. Cars are a visual purchase; the photo is the product.
+
+   Borrowed on purpose: Bring a Trailer's photo-forward grid, CarGurus' deal
+   prominence (rated against completed sales rather than other asking prices),
+   AutoTempest's source attribution, and the save/compare affordances every
+   property site has had for a decade and no car site does well. */
+
+.toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  flex-wrap: wrap; padding: 10px 0 12px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 62px; z-index: 6; background: var(--bg);
+}
+.tb-count { font-size: 14px; color: var(--muted); }
+.tb-count strong { color: var(--ink); font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+.tb-right { display: flex; align-items: center; gap: 10px; }
+.tb-sort { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.tb-sort select {
+  padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--ink); font-size: 13px; max-width: 220px;
+}
+.tb-view { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.vbtn {
+  padding: 7px 11px; border: 0; border-radius: 0; background: var(--panel);
+  color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.vbtn + .vbtn { border-left: 1px solid var(--line); }
+.vbtn:hover { color: var(--ink); background: var(--panel-2); }
+.vbtn.on { background: var(--accent); color: var(--accent-ink); }
+.vbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* --- the list, in two shapes -------------------------------------------
+   The modifiers are `is-grid` and `is-rows`, not `grid` and `list`, because a
+   view class named `list` on a container already classed `list` compiles to
+   `.list.list`, which matches EVERY list at the same specificity as
+   `.list.grid` and, being later in the file, silently won. The grid columns
+   computed correctly and the display never changed. */
+
+.list.is-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 16px; }
+.list.is-rows { display: flex; flex-direction: column; gap: 10px; }
+
+.rcard {
+  border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel);
+  overflow: hidden; box-shadow: var(--shadow);
+  transition: border-color .14s ease, transform .1s ease, box-shadow .14s ease;
+}
+.rcard:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 22px rgba(16,20,28,.10); }
+.rcard.picked { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+.rcard .ph { position: relative; background: var(--panel-2); overflow: hidden; }
+.rcard .ph img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
+.rcard:hover .ph img { transform: scale(1.035); }
+.rcard .noimg {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  width: 100%; height: 100%; color: var(--muted); text-align: center; padding: 12px;
+  background: linear-gradient(150deg, var(--panel-2), var(--panel));
+}
+.noimg-y { font-size: 12px; letter-spacing: .06em; }
+.noimg-m { font-size: 15px; font-weight: 650; color: var(--ink); letter-spacing: -.01em; }
+.noimg-n { font-size: 10.5px; opacity: .75; margin-top: 3px; }
+
+/* Grid: the photo leads. 4:3 is the aspect most listing photography is shot in,
+   so it crops the fewest cars. */
+.rcard.is-grid { display: flex; flex-direction: column; }
+.rcard.is-grid .ph { aspect-ratio: 4 / 3; }
+.rcard.is-grid .body { padding: 12px 13px 4px; }
+/* margin-top:auto pins the price to the bottom, so a one-line title and a
+   two-line title still align their prices across a row of cards. */
+.rcard.is-grid .pricing { padding: 10px 13px 13px; margin-top: auto; }
+
+/* List: density for the scan, but the photo is still large enough to judge. */
+.rcard.is-rows { display: grid; grid-template-columns: 232px minmax(0, 1fr) minmax(180px, 224px); align-items: stretch; }
+.rcard.is-rows .ph { aspect-ratio: 4 / 3; }
+.rcard.is-rows .body { padding: 14px 16px; align-self: center; min-width: 0; }
+.rcard.is-rows .pricing { padding: 14px 16px; align-self: center; text-align: right; min-width: 168px; }
+
+.rcard h3 { margin: 0 0 6px; font-size: 15px; font-weight: 650; letter-spacing: -.015em; line-height: 1.32; }
+.rcard h3 a { text-decoration: none; color: inherit; }
+.rcard h3 a:hover { color: var(--accent); }
+/* Two lines, then ellipsis. A three-line title pushes every card out of step. */
+.rcard.is-grid h3 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.specs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.specs .dot { opacity: .45; }
+.specs .warn { color: var(--high); font-weight: 600; }
+
+.notes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.note {
+  font-size: 10.5px; padding: 3px 7px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); background: var(--bg); white-space: nowrap;
+}
+.note.drop { border-color: var(--great); color: var(--great); }
+.note.good { border-color: var(--good); color: var(--good); }
+
+.rcard .amount { font-size: 22px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+.rcard.is-grid .amount { font-size: 20px; }
+.rcard .amount.sold { color: var(--sold); }
+.rcard .amount.bid { color: var(--high); }
+.rcard .amount .cur { font-size: 11px; font-weight: 600; margin-left: 5px; opacity: .7; vertical-align: 3px; }
+.rcard .kind { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+/* The number the whole project exists to show: distance from what these
+   actually sold for, not from what other sellers are asking. */
+.delta { margin-top: 6px; font-size: 12px; font-weight: 600; }
+.delta.under { color: var(--great); }
+.delta.over { color: var(--high); }
+.delta .basis { display: block; font-size: 10.5px; font-weight: 400; color: var(--muted); margin-top: 1px; }
+
+/* --- ribbons and card actions ------------------------------------------ */
+
+.ribbon {
+  position: absolute; top: 9px; left: 9px; z-index: 2;
+  font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .05em;
+  padding: 5px 7px; border-radius: 5px; color: #fff; white-space: nowrap;
+  box-shadow: 0 1px 6px rgba(0,0,0,.28);
+}
+.ribbon.great { background: var(--great); }
+.ribbon.good  { background: var(--good); }
+.ribbon.fair  { background: var(--fair); }
+.ribbon.high  { background: var(--high); }
+.ribbon.overpriced { background: var(--over); }
+.ribbon.best { top: auto; bottom: 9px; left: 9px; background: var(--ink); color: var(--bg); }
+
+.src-tag {
+  position: absolute; bottom: 9px; right: 9px; z-index: 2;
+  font-size: 10.5px; padding: 4px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent); color: var(--ink);
+  border: 1px solid var(--line); backdrop-filter: blur(6px); white-space: nowrap;
+}
+
+.acts { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 6px; opacity: 0; transition: opacity .14s ease; }
+.rcard:hover .acts, .rcard:focus-within .acts, .rcard.picked .acts { opacity: 1; }
+.act {
+  width: 32px; height: 32px; padding: 0; display: grid; place-items: center;
+  border-radius: 999px; border: 1px solid var(--line); cursor: pointer;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  color: var(--ink); font-size: 15px; line-height: 1; backdrop-filter: blur(6px);
+}
+.act:hover { border-color: var(--accent); color: var(--accent); }
+.act.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.act.save.on { background: var(--over); border-color: var(--over); color: #fff; }
+.act:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The comparison cap is four; a refusal has to be felt, not silent. */
+.act.shake { animation: shake .38s ease; }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.rcard .rankline { margin-top: 7px; justify-content: flex-end; }
+.rcard.is-grid .rankline { justify-content: flex-start; }
+
+/* --- comparison tray and sheet ----------------------------------------- */
+
+/* Room for the fixed tray, so the last card is never trapped under it. */
+body.has-tray .layout { padding-bottom: 108px; }
+
+.cmp-tray {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 20px; background: var(--panel); border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 24px rgba(16,20,28,.12); flex-wrap: wrap;
+}
+.tray-cars { display: flex; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.tray-car {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 5px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--bg); font-size: 12px;
+}
+.tray-car img, .tray-noimg { width: 34px; height: 26px; object-fit: cover; border-radius: 5px; background: var(--panel-2); flex: none; }
+.tray-t { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tray-x { width: 20px; height: 20px; padding: 0; border-radius: 999px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.tray-x:hover { color: var(--over); }
+.tray-actions { display: flex; gap: 8px; }
+
+.cmp-modal {
+  position: fixed; inset: 0; z-index: 40; display: grid; place-items: center;
+  padding: 22px; background: rgba(10,13,18,.6); backdrop-filter: blur(3px);
+}
+.cmp-sheet {
+  width: min(1180px, 100%); max-height: 88vh; display: flex; flex-direction: column;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: 0 24px 70px rgba(0,0,0,.4); overflow: hidden;
+}
+.cmp-sheet header { position: relative; padding: 18px 22px 14px; border-bottom: 1px solid var(--line); }
+.cmp-sheet h2 { margin: 0 0 3px; font-size: 19px; letter-spacing: -.02em; }
+.cmp-sheet header p { margin: 0; color: var(--muted); font-size: 13px; }
+.cmp-close {
+  position: absolute; top: 14px; right: 16px; width: 34px; height: 34px; padding: 0;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer;
+}
+.cmp-close:hover { color: var(--ink); border-color: var(--accent); }
+.cmp-scroll { overflow: auto; }
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cmp-table th, .cmp-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+.cmp-table thead th { position: sticky; top: 0; background: var(--bg); z-index: 1; vertical-align: bottom; }
+.cmp-table thead th img, .cmp-table thead th .tray-noimg { display: block; width: 100%; max-width: 190px; height: 96px; object-fit: cover; border-radius: 8px; margin-bottom: 7px; }
+/* A car's name is not a column label. The uppercase treatment is inherited
+   from the table header styling and has to be undone explicitly. */
+.cmp-table thead th span,
+.cmp-table thead th a { text-transform: none; letter-spacing: normal; }
+.cmp-table thead th span { display: block; font-weight: 650; font-size: 13px; line-height: 1.3; max-width: 190px; color: var(--ink); }
+.cmp-table thead th a { display: inline-block; margin-top: 5px; font-size: 11.5px; color: var(--accent); }
+.cmp-table tbody th { font-weight: 600; color: var(--muted); white-space: nowrap; width: 190px; }
+/* Rows every car agrees on are not the decision, so they recede. */
+.cmp-table tr.same { opacity: .48; }
+.cmp-table tr.differs th { color: var(--ink); }
+.cmp-table tr.differs td { font-weight: 600; }
+.cmp-table tr.differs th::after { content: ""; display: inline-block; width: 5px; height: 5px; border-radius: 999px; background: var(--accent); margin-left: 7px; vertical-align: middle; }
+
+@media (max-width: 720px) {
+  .toolbar { top: 0; }
+  .tb-right { width: 100%; justify-content: space-between; }
+  .rcard.is-rows { grid-template-columns: 132px minmax(0, 1fr); }
+  .rcard.is-rows .pricing { grid-column: 2; text-align: left; padding-top: 0; min-width: 0; }
+  .rcard.is-rows .rankline { justify-content: flex-start; }
+  .cmp-table tbody th { width: 118px; white-space: normal; }
+  .tray-t { max-width: 96px; }
+}
+
+/* Skeletons shaped like the cards they replace, so nothing shifts on arrival. */
+.skeleton.is-grid { height: 300px; border-radius: var(--radius-lg); }
+.skeleton.is-rows { height: 176px; border-radius: var(--radius-lg); }
+.fchip.more { border-style: dashed; color: var(--accent); }
+.fchip.more:hover { background: var(--panel-2); }
+
+/* ========================================================= command palette ==
+   Cmd-K, borrowed from Linear. A car search has a long tail of intents a form
+   cannot hold, and one keystroke costs a beginner nothing because the search
+   box still does everything. */
+
+.palette { position: fixed; inset: 0; z-index: 50; display: grid; place-items: start center; padding: 12vh 20px 20px; background: rgba(10,13,18,.55); backdrop-filter: blur(3px); }
+.pal-sheet {
+  width: min(560px, 100%); background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); box-shadow: 0 24px 70px rgba(0,0,0,.45); overflow: hidden;
+}
+.pal-sheet input {
+  width: 100%; padding: 16px 18px; border: 0; border-bottom: 1px solid var(--line);
+  background: transparent; color: var(--ink); font-size: 16px; outline: none;
+}
+.pal-sheet ul { list-style: none; margin: 0; padding: 6px; max-height: 48vh; overflow-y: auto; }
+.pal-sheet li {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 14px;
+}
+.pal-sheet li.on { background: var(--accent); color: var(--accent-ink); }
+.pal-sheet li.on .pal-hint { color: var(--accent-ink); opacity: .8; }
+.pal-hint { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.pal-none { color: var(--muted); cursor: default; font-size: 13px; }
+.pal-sheet footer { padding: 9px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; display: flex; gap: 6px; align-items: center; }
+.pal-sheet kbd {
+  font: 500 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 3px 5px; border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 4px; background: var(--panel);
+}

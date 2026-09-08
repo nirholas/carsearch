@@ -24,6 +24,20 @@ const num = (n) => (n === null || n === undefined ? '-' : Number(n).toLocaleStri
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 const FILTER_IDS = ['make', 'model', 'yearMin', 'yearMax', 'priceMin', 'priceMax', 'mileageMax', 'sort'];
+/** The one list both sort controls read, so they cannot drift apart. */
+const SORT_OPTIONS = [
+  { value: 'price', label: 'Lowest price' },
+  { value: 'mileage', label: 'Lowest mileage' },
+  { value: 'mileage+price', label: 'Lowest mileage and price' },
+  { value: 'deal', label: 'Best deal vs sold' },
+  { value: 'value', label: 'Best value' },
+  { value: 'best', label: 'Best overall' },
+  { value: 'year', label: 'Newest year' },
+  { value: 'age', label: 'Oldest year' },
+  { value: 'newest', label: 'Recently listed' },
+  { value: 'days-on-market', label: 'Longest listed' },
+];
+
 const EXAMPLES = [
   'an old g wagon',
   'porsche macan under 40k with low miles',
@@ -35,6 +49,56 @@ const EXAMPLES = [
 /** Results of the last search, kept so source tabs filter without a refetch. */
 let lastResults = [];
 let activeSource = 'all';
+
+/**
+ * How the results are laid out.
+ *
+ * Grid is the default because a car is a visual purchase, and a page of
+ * thumbnails beside empty space is the layout every incumbent settled for.
+ * List stays available because once you know what you want, density beats
+ * photography, and switching should not cost a page load.
+ */
+let view = readPref('carsearch:view', 'grid');
+
+/** Cars picked for comparison, and cars kept for later. Both survive a reload. */
+const compare = new Set(readPref('carsearch:compare', []));
+let savedCars = readPref('carsearch:saved', []);
+
+function readPref(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch {
+    // A private window, cleared site data, or storage the browser refuses.
+    // None of those should cost the user their results.
+    return fallback;
+  }
+}
+
+function writePref(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* nothing to do */ }
+}
+
+const isSaved = (id) => savedCars.some((c) => c.id === id);
+
+function toggleSaved(id) {
+  const row = lastResults.find((r) => r.id === id);
+  if (!row) return;
+  savedCars = isSaved(id)
+    ? savedCars.filter((c) => c.id !== id)
+    // Only what a saved-list row needs to render, so the store stays small.
+    : [{ id, title: row.title, price: row.price, url: row.url, imageUrl: row.imageUrl, sourceId: row.sourceId }, ...savedCars].slice(0, 60);
+  writePref('carsearch:saved', savedCars);
+}
+
+function toggleCompare(id) {
+  if (compare.has(id)) compare.delete(id);
+  // Four is the most that fits side by side without becoming a spreadsheet.
+  else if (compare.size < 4) compare.add(id);
+  else return false;
+  writePref('carsearch:compare', [...compare]);
+  return true;
+}
 
 /* ------------------------------------------------------------------ routing */
 
@@ -93,16 +157,26 @@ function rankBadges(r) {
   const parts = [];
 
   /**
-   * Layer 1 means nothing in the whole result set beats this car on every
-   * ranked dimension at once. That is a stronger, weighting-free claim than any
-   * score, so it gets the badge.
+   * The frontier badge lives on the photo, not here.
+   *
+   * Layer 1 means nothing in the result set beats this car on every ranked
+   * dimension at once, which is the strongest claim the ranking can make, so it
+   * belongs where the eye lands first. Saying it twice on one card made it read
+   * as decoration rather than as a finding.
    */
-  if (rank.paretoLayer === 1) {
-    parts.push(`<span class="frontier" title="Nothing in these results beats it on every thing you ranked by">BEST OF BOTH</span>`);
-  }
-  for (const reason of rank.reasons ?? []) {
-    if (reason.position === null) continue;
-    parts.push(`<span class="rank-reason">#${reason.position} ${esc(reason.label)} <span class="of">of ${reason.outOf}</span></span>`);
+  /**
+   * Positions are shown only when the ranking is a trade-off.
+   *
+   * On a single-axis sort, "#1 lowest price" on the first card and "#2" on the
+   * second restates the order the eye already has, on every card, forever. Where
+   * two axes pull against each other the positions ARE the explanation for why
+   * a car sits where it does, which is the whole reason they exist.
+   */
+  const reasons = (rank.reasons ?? []).filter((x) => x.position !== null);
+  if (reasons.length > 1) {
+    for (const reason of reasons) {
+      parts.push(`<span class="rank-reason">#${reason.position} ${esc(reason.label)} <span class="of">of ${reason.outOf}</span></span>`);
+    }
   }
   for (const key of rank.unknown ?? []) {
     parts.push(`<span class="rank-reason unknown" title="Ranked last on this because the listing never states it">no ${esc(key)} stated</span>`);
@@ -110,49 +184,107 @@ function rankBadges(r) {
   return parts.length ? `<div class="rankline">${parts.join('')}</div>` : '';
 }
 
-function card(r) {
+/**
+ * A result card.
+ *
+ * Cars are a visual purchase, and the previous card gave a 148px thumbnail a
+ * third of the width and left the middle column empty. The good ideas are
+ * borrowed openly and each one earns its place:
+ *
+ *  - Bring a Trailer's photo-forward grid. A car you cannot see is a row of
+ *    text, and people do not shop for cars by reading.
+ *  - CarGurus' deal prominence, with one correction that is the whole point of
+ *    this project: theirs rates a listing against other ASKING prices, ours
+ *    against what comparable cars actually SOLD for.
+ *  - AutoTempest's source attribution, so a meta-search never feels like it is
+ *    hiding where anything came from.
+ *  - The save and compare affordances every property site has had for a decade
+ *    and no car site does well.
+ */
+
+const DEAL_LABEL = {
+  great: 'GREAT DEAL', good: 'GOOD DEAL', fair: 'FAIR PRICE',
+  high: 'ABOVE MARKET', overpriced: 'OVERPRICED',
+};
+
+/** "$20,100 below the $38,000 median of 5 sales" reduced to the number that matters. */
+function dealDelta(deal) {
+  if (!deal || !deal.grade) return '';
+  const under = deal.dollarsVsSold < 0;
+  return `<div class="delta ${under ? 'under' : 'over'}">${money(Math.abs(deal.dollarsVsSold))} ${under ? 'below' : 'above'} market
+    <span class="basis">${deal.sampleSize} sold</span></div>`;
+}
+
+/** The facts a buyer scans first, in the order they scan them. */
+function specRow(r) {
+  const bits = [
+    r.mileage !== null && r.mileage !== undefined ? `${num(r.mileage)} mi` : null,
+    r.transmission ? esc(r.transmission.replace('-', ' ')) : null,
+    r.drivetrain ? esc(r.drivetrain.toUpperCase()) : null,
+    r.titleStatus && r.titleStatus !== 'clean' ? `<span class="warn">${esc(r.titleStatus)} title</span>` : null,
+    r.location ? esc(r.location) : null,
+  ].filter(Boolean);
+  return bits.length ? `<div class="specs">${bits.join('<span class="dot">·</span>')}</div>` : '';
+}
+
+function card(r, view) {
   const kindClass = r.priceKind === 'sold' ? 'sold' : r.priceKind === 'bid' ? 'bid' : '';
-  const kindLabel = r.priceKind === 'sold' ? 'sold' : r.priceKind === 'bid' ? 'current bid' : '';
+  const kindLabel = r.priceKind === 'sold' ? 'sold for' : r.priceKind === 'bid' ? 'current bid' : '';
   const history = r.priceHistory ?? [];
   const dropped = history.length > 1 && history[history.length - 1].price < history[0].price;
   const drop = dropped ? history[0].price - history[history.length - 1].price : 0;
+  const frontier = r.rank?.paretoLayer === 1;
+  const deal = r.deal;
+  const saved = isSaved(r.id);
+  const picked = compare.has(r.id);
 
-  const badges = [
-    badge(r.sourceId, 'src'),
-    ...(r.alsoOn ?? []).map((s) => badge(s, 'src')),
-    r.priceKind === 'sold' ? badge('completed sale', 'sold') : '',
-    r.priceKind === 'bid' ? badge('bid, not an asking price', 'sold') : '',
-    dropped ? badge(`price dropped ${money(drop)}`, 'drop') : '',
-    r.daysOnMarket > 0 ? badge(`${r.daysOnMarket}d on market`) : '',
-    r.mileageIsRounded ? badge('mileage rounded by the site', 'rounded') : '',
-    r.series ? badge(r.series) : '',
-    r.vin ? badge('VIN matched') : '',
+  /**
+   * A photoless listing still has to look like a car. A blank grey block reads
+   * as a broken image, so the slot carries the car's own identity instead.
+   */
+  const photo = r.imageUrl
+    ? `<img src="${esc(r.imageUrl)}" alt="" loading="lazy" decoding="async">`
+    : `<div class="noimg"><span class="noimg-y">${esc(r.year ?? '')}</span>
+         <span class="noimg-m">${esc([r.make, r.model].filter(Boolean).join(' ') || 'Listing')}</span>
+         <span class="noimg-n">no photo published</span></div>`;
+
+  const title = esc(r.title || 'Untitled listing');
+  const heading = r.url
+    ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${title}</a>`
+    : title;
+
+  /** Small, factual notes. Anything that changes a decision, nothing that does not. */
+  const notes = [
+    dropped ? `<span class="note drop">price dropped ${money(drop)}</span>` : '',
+    r.daysOnMarket > 0 ? `<span class="note">${r.daysOnMarket}d listed</span>` : '',
+    r.mileageIsRounded ? `<span class="note">mileage rounded</span>` : '',
+    (r.alsoOn ?? []).length ? `<span class="note">also on ${(r.alsoOn ?? []).map(esc).join(', ')}</span>` : '',
+    r.certified ? `<span class="note good">certified</span>` : '',
   ].filter(Boolean).join('');
 
-  const img = r.imageUrl
-    ? `<img class="thumb" src="${esc(r.imageUrl)}" alt="" loading="lazy">`
-    : `<div class="noimg">no photo</div>`;
-  const title = r.url
-    ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title || 'Untitled listing')}</a>`
-    : esc(r.title || 'Untitled listing');
-
-  return `<article class="card">
-    ${img}
-    <div>
-      <h3>${title}</h3>
-      <div class="meta">
-        <span>${num(r.mileage)} mi</span>
-        ${r.trim ? `<span>${esc(r.trim)}</span>` : ''}
-        ${r.location ? `<span>${esc(r.location)}</span>` : ''}
-        ${r.eventDate ? `<span>${esc(r.eventDate)}</span>` : ''}
+  return `<article class="rcard is-${view === 'grid' ? 'grid' : 'rows'}${picked ? ' picked' : ''}" data-id="${esc(r.id)}">
+    <div class="ph">
+      ${photo}
+      ${deal && deal.grade ? `<span class="ribbon ${deal.grade}" title="${esc(deal.explanation)}">${DEAL_LABEL[deal.grade]}</span>` : ''}
+      ${frontier ? `<span class="ribbon best" title="Nothing in these results beats it on every thing you ranked by">BEST OF BOTH</span>` : ''}
+      <span class="src-tag">${esc(r.sourceId)}</span>
+      <div class="acts">
+        <button class="act save${saved ? ' on' : ''}" data-act="save" data-id="${esc(r.id)}"
+                aria-label="${saved ? 'Remove from saved' : 'Save this car'}" aria-pressed="${saved}">${saved ? '♥' : '♡'}</button>
+        <button class="act cmp${picked ? ' on' : ''}" data-act="compare" data-id="${esc(r.id)}"
+                aria-label="${picked ? 'Remove from comparison' : 'Add to comparison'}" aria-pressed="${picked}">⇄</button>
       </div>
-      <div class="badges">${badges}</div>
-      ${rankBadges(r)}
     </div>
-    <div class="price">
-      <div class="amount ${kindClass}">${money(r.price)}</div>
+    <div class="body">
+      <h3>${heading}</h3>
+      ${specRow(r)}
+      <div class="notes">${notes}</div>
+    </div>
+    <div class="pricing">
+      <div class="amount ${kindClass}">${money(r.price)}${r.currency && r.currency !== 'USD' ? `<span class="cur">${esc(r.currency)}</span>` : ''}</div>
       ${kindLabel ? `<div class="kind">${kindLabel}</div>` : ''}
-      ${dealBadge(r.deal)}
+      ${dealDelta(deal)}
+      ${rankBadges(r)}
     </div>
   </article>`;
 }
@@ -177,9 +309,157 @@ function renderSourceTabs(results) {
 
 function paintList() {
   const rows = activeSource === 'all' ? lastResults : lastResults.filter((r) => r.sourceId === activeSource);
-  $('#list').innerHTML = rows.length
-    ? rows.map(card).join('')
-    : `<div class="state"><h3>No results from ${esc(activeSource)}</h3><p>Pick another source tab.</p></div>`;
+  const el = $('#list');
+  el.className = `list is-${view === 'grid' ? 'grid' : 'rows'}`;
+  el.innerHTML = rows.length
+    ? rows.map((r) => card(r, view)).join('')
+    : `<div class="state"><h3>Nothing from ${esc(activeSource)}</h3><p>Pick another source, or widen the filters.</p></div>`;
+  paintToolbar(rows.length);
+  paintCompareTray();
+}
+
+/**
+ * The bar above the results.
+ *
+ * Sort and view belong here rather than in the filter rail: they change how you
+ * READ the answer, not what the answer is, and burying a view toggle in a
+ * sidebar is why most sites only ever have one view.
+ */
+function paintToolbar(shown) {
+  const el = $('#toolbar');
+  if (!lastResults.length) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="tb-count"><strong>${num(shown)}</strong> ${shown === 1 ? 'car' : 'cars'}${
+      activeSource === 'all' ? '' : ` from ${esc(activeSource)}`}</div>
+    <div class="tb-right">
+      <label class="tb-sort">Rank by
+        <select id="tb-sortsel">${SORT_OPTIONS.map((o) =>
+          `<option value="${esc(o.value)}"${($('#f-sort')?.value === o.value) ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>
+      </label>
+      <div class="tb-view" role="group" aria-label="Layout">
+        <button class="vbtn${view === 'grid' ? ' on' : ''}" data-view="grid" aria-pressed="${view === 'grid'}" title="Photo grid">▦</button>
+        <button class="vbtn${view === 'list' ? ' on' : ''}" data-view="list" aria-pressed="${view === 'list'}" title="Dense list">☰</button>
+      </div>
+    </div>`;
+
+  $('#tb-sortsel').addEventListener('change', (e) => {
+    $('#f-sort').value = e.target.value;
+    runSearch($('#q').value.trim() || '');
+  });
+  for (const b of el.querySelectorAll('.vbtn')) {
+    b.addEventListener('click', () => {
+      view = b.dataset.view;
+      writePref('carsearch:view', view);
+      paintList();
+    });
+  }
+}
+
+/**
+ * The comparison tray.
+ *
+ * Sticky at the bottom while cars are selected, because the whole value of
+ * comparison is picking things from different parts of a long list, and a
+ * control that scrolls away makes that impossible.
+ */
+function paintCompareTray() {
+  const el = $('#cmp-tray');
+  // The tray is fixed to the viewport, so the page has to make room for it or
+  // the last card is unreachable.
+  document.body.classList.toggle('has-tray', compare.size > 0);
+  const picked = [...compare].map((id) => lastResults.find((r) => r.id === id)).filter(Boolean);
+  if (picked.length === 0) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="tray-cars">${picked.map((r) => `
+      <span class="tray-car">
+        ${r.imageUrl ? `<img src="${esc(r.imageUrl)}" alt="">` : '<span class="tray-noimg"></span>'}
+        <span class="tray-t">${esc((r.title || '').slice(0, 30))}</span>
+        <button class="tray-x" data-act="compare" data-id="${esc(r.id)}" aria-label="Remove from comparison">×</button>
+      </span>`).join('')}</div>
+    <div class="tray-actions">
+      <button class="ghost" id="cmp-clear">Clear</button>
+      <button class="primary" id="cmp-open"${picked.length < 2 ? ' disabled' : ''}>
+        Compare ${picked.length < 2 ? '(pick 2 or more)' : `these ${picked.length}`}
+      </button>
+    </div>`;
+  $('#cmp-clear').addEventListener('click', () => { compare.clear(); writePref('carsearch:compare', []); paintList(); });
+  $('#cmp-open').addEventListener('click', openCompare);
+}
+
+/**
+ * Side by side, with the rows that differ marked.
+ *
+ * The reason no car site does this well is that a comparison of forty
+ * attributes is a spreadsheet nobody reads. What a buyer wants is the short
+ * list of things these particular cars do NOT agree on, so identical rows are
+ * dimmed and the differing ones carry a marker.
+ */
+const COMPARE_ROWS = [
+  { key: 'price', label: 'Price', fmt: (r) => money(r.price) },
+  { key: 'priceKind', label: 'Price is', fmt: (r) => ({ ask: 'an asking price', bid: 'a current bid', sold: 'a completed sale' })[r.priceKind] ?? r.priceKind },
+  { key: 'deal', label: 'Against sold prices', fmt: (r) => (r.deal && r.deal.grade ? `${DEAL_LABEL[r.deal.grade]} — ${r.deal.explanation}` : (r.deal?.reason ?? 'not rated')) },
+  { key: 'year', label: 'Year', fmt: (r) => r.year ?? '-' },
+  { key: 'mileage', label: 'Mileage', fmt: (r) => (r.mileage === null || r.mileage === undefined ? 'not stated' : `${num(r.mileage)} mi${r.mileageIsRounded ? ' (rounded)' : ''}`) },
+  { key: 'titleStatus', label: 'Title', fmt: (r) => r.titleStatus ?? 'not stated' },
+  { key: 'owners', label: 'Owners', fmt: (r) => r.owners ?? 'not stated' },
+  { key: 'accidents', label: 'Accidents reported', fmt: (r) => (r.accidents === null || r.accidents === undefined ? 'not stated' : r.accidents) },
+  { key: 'trim', label: 'Trim', fmt: (r) => r.trim ?? '-' },
+  { key: 'series', label: 'Generation', fmt: (r) => r.series ?? 'not decoded' },
+  { key: 'transmission', label: 'Transmission', fmt: (r) => r.transmission ?? 'not stated' },
+  { key: 'drivetrain', label: 'Drivetrain', fmt: (r) => (r.drivetrain ? r.drivetrain.toUpperCase() : 'not stated') },
+  { key: 'engine', label: 'Engine', fmt: (r) => r.engine ?? 'not stated' },
+  { key: 'mpgCity', label: 'MPG city / highway', fmt: (r) => (r.mpgCity ? `${r.mpgCity} / ${r.mpgHighway ?? '-'}` : 'not stated') },
+  { key: 'exteriorColor', label: 'Colour', fmt: (r) => r.exteriorColor ?? 'not stated' },
+  { key: 'sellerType', label: 'Seller', fmt: (r) => r.sellerType ?? 'not stated' },
+  { key: 'location', label: 'Location', fmt: (r) => r.location ?? 'not stated' },
+  { key: 'daysOnMarket', label: 'Days listed', fmt: (r) => (r.daysOnMarket > 0 ? r.daysOnMarket : 'first sighting') },
+  { key: 'sourceId', label: 'Listed on', fmt: (r) => [r.sourceId, ...(r.alsoOn ?? [])].join(', ') },
+];
+
+function openCompare() {
+  const cars = [...compare].map((id) => lastResults.find((r) => r.id === id)).filter(Boolean);
+  if (cars.length < 2) return;
+  const el = $('#cmp-modal');
+  el.hidden = false;
+  document.body.style.overflow = 'hidden';
+
+  const rows = COMPARE_ROWS.map((row) => {
+    const values = cars.map((c) => String(row.fmt(c)));
+    const differs = new Set(values).size > 1;
+    return `<tr class="${differs ? 'differs' : 'same'}">
+      <th scope="row">${esc(row.label)}</th>
+      ${values.map((v) => `<td>${esc(v)}</td>`).join('')}
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<div class="cmp-sheet" role="dialog" aria-modal="true" aria-label="Compare cars">
+    <header>
+      <h2>Comparing ${cars.length} cars</h2>
+      <p>Rows these cars agree on are dimmed. What is left is the decision.</p>
+      <button class="cmp-close" aria-label="Close comparison">×</button>
+    </header>
+    <div class="cmp-scroll">
+      <table class="cmp-table">
+        <thead><tr><th></th>${cars.map((c) => `<th scope="col">
+          ${c.imageUrl ? `<img src="${esc(c.imageUrl)}" alt="">` : '<span class="tray-noimg"></span>'}
+          <span>${esc(c.title || 'Untitled')}</span>
+          ${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">View on ${esc(c.sourceId)}</a>` : ''}
+        </th>`).join('')}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+
+  const close = () => { el.hidden = true; document.body.style.overflow = ''; };
+  el.querySelector('.cmp-close').addEventListener('click', close);
+  el.addEventListener('click', (e) => { if (e.target === el) close(); });
+  document.addEventListener('keydown', function esc2(e) {
+    if (e.key !== 'Escape') return;
+    close();
+    document.removeEventListener('keydown', esc2);
+  });
 }
 
 function renderUnderstood(data) {
@@ -249,10 +529,16 @@ async function runSearch(question) {
   location.hash = '#/results';
   show('results');
   activeSource = 'all';
-  $('#list').innerHTML = Array.from({ length: 6 }, () => '<div class="skeleton"></div>').join('');
+  const listEl = $('#list');
+  listEl.className = `list is-${view === 'grid' ? 'grid' : 'rows'}`;
+  // Skeletons in the shape of the cards they stand in for, so the page does not
+  // jump when the real results land.
+  listEl.innerHTML = Array.from({ length: view === 'grid' ? 9 : 6 },
+    () => `<div class="skeleton is-${view === 'grid' ? 'grid' : 'rows'}"></div>`).join('');
   $('#summary').hidden = true;
   $('#understood').hidden = true;
   $('#source-tabs').hidden = true;
+  $('#toolbar').hidden = true;
 
   try {
     let data;
@@ -640,6 +926,30 @@ function renderValuation(scope, d) {
 $('#dash-form').addEventListener('submit', (e) => { e.preventDefault(); runDashboard(); });
 window.addEventListener('carsearch:redraw', () => runDashboard());
 
+/**
+ * Card actions are delegated from the list rather than bound per card.
+ *
+ * Cards are re-rendered on every sort, filter and view change, and binding
+ * handlers to each one leaks them on every repaint.
+ */
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  e.preventDefault();
+  const { act, id } = btn.dataset;
+  if (act === 'save') {
+    toggleSaved(id);
+    paintList();
+  } else if (act === 'compare') {
+    if (!toggleCompare(id)) {
+      btn.classList.add('shake');
+      setTimeout(() => btn.classList.remove('shake'), 400);
+      return;
+    }
+    paintList();
+  }
+});
+
 document.addEventListener('keydown', (e) => {
   if (e.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
     e.preventDefault();
@@ -652,3 +962,108 @@ loadSourceChips();
 loadVocabulary();
 loadHero();
 show(routeFromHash());
+
+/* --------------------------------------------------------- command palette */
+
+/**
+ * Cmd-K, borrowed from Linear and every tool that respects its power users.
+ *
+ * A car search has a long tail of intents that a form cannot hold: switch the
+ * ranking, flip the layout, jump to the market data for whatever you are
+ * looking at, reopen a saved car. Putting them behind one keystroke costs a
+ * beginner nothing, because the search box still does everything, and saves
+ * everyone else the round trip through the sidebar.
+ */
+function paletteCommands() {
+  const make = $('#f-make')?.value.trim();
+  const model = $('#f-model')?.value.trim();
+  const scope = [make, model].filter(Boolean).join(' ');
+
+  const commands = [
+    ...SORT_OPTIONS.map((o) => ({
+      label: `Rank by ${o.label.toLowerCase()}`,
+      hint: 'ranking',
+      run: () => { $('#f-sort').value = o.value; runSearch($('#q').value.trim() || ''); },
+    })),
+    { label: 'Photo grid', hint: 'layout', run: () => { view = 'grid'; writePref('carsearch:view', view); paintList(); } },
+    { label: 'Dense list', hint: 'layout', run: () => { view = 'list'; writePref('carsearch:view', view); paintList(); } },
+    {
+      label: scope ? `Market data for ${scope}` : 'Market data',
+      hint: 'go',
+      run: () => {
+        if (make) $('#d-make').value = make;
+        if (model) $('#d-model').value = model;
+        location.hash = '#/dashboard';
+      },
+    },
+    { label: 'Auctions and completed sales', hint: 'go', run: () => { location.hash = '#/auctions'; } },
+    { label: 'Sources', hint: 'go', run: () => { location.hash = '#/sources'; } },
+    { label: 'Clear every filter', hint: 'action', run: () => $('#reset').click() },
+  ];
+
+  if (compare.size >= 2) commands.unshift({ label: `Compare the ${compare.size} cars you picked`, hint: 'action', run: openCompare });
+  for (const c of savedCars.slice(0, 8)) {
+    commands.push({ label: c.title || 'Saved car', hint: 'saved', run: () => c.url && window.open(c.url, '_blank', 'noopener') });
+  }
+  for (const ex of EXAMPLES) {
+    commands.push({ label: ex, hint: 'search', run: () => { $('#q').value = ex; runSearch(ex); } });
+  }
+  return commands;
+}
+
+let paletteIndex = 0;
+let paletteMatches = [];
+
+function openPalette() {
+  const el = $('#palette');
+  el.hidden = false;
+  el.innerHTML = `<div class="pal-sheet" role="dialog" aria-modal="true" aria-label="Commands">
+    <input id="pal-input" type="text" placeholder="Rank by, jump to, search…" autocomplete="off" aria-label="Command">
+    <ul id="pal-list" role="listbox"></ul>
+    <footer><kbd>↑</kbd><kbd>↓</kbd> to move <kbd>enter</kbd> to run <kbd>esc</kbd> to close</footer>
+  </div>`;
+
+  const input = $('#pal-input');
+  const paint = () => {
+    const q = input.value.trim().toLowerCase();
+    paletteMatches = paletteCommands().filter((c) => !q || c.label.toLowerCase().includes(q)).slice(0, 9);
+    paletteIndex = Math.min(paletteIndex, Math.max(0, paletteMatches.length - 1));
+    $('#pal-list').innerHTML = paletteMatches.length
+      ? paletteMatches.map((c, i) => `<li role="option" aria-selected="${i === paletteIndex}"
+          class="${i === paletteIndex ? 'on' : ''}" data-i="${i}">${esc(c.label)}<span class="pal-hint">${esc(c.hint)}</span></li>`).join('')
+      : `<li class="pal-none">Nothing matches. Press escape and type it in the search box instead.</li>`;
+  };
+  paint();
+
+  input.addEventListener('input', () => { paletteIndex = 0; paint(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); paletteIndex = (paletteIndex + 1) % Math.max(1, paletteMatches.length); paint(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); paletteIndex = (paletteIndex - 1 + paletteMatches.length) % Math.max(1, paletteMatches.length); paint(); }
+    else if (e.key === 'Enter') { e.preventDefault(); runPalette(paletteIndex); }
+    else if (e.key === 'Escape') closePalette();
+  });
+  $('#pal-list').addEventListener('click', (e) => {
+    const li = e.target.closest('li[data-i]');
+    if (li) runPalette(Number(li.dataset.i));
+  });
+  el.addEventListener('click', (e) => { if (e.target === el) closePalette(); });
+  input.focus();
+}
+
+function runPalette(i) {
+  const cmd = paletteMatches[i];
+  closePalette();
+  cmd?.run();
+}
+
+function closePalette() {
+  $('#palette').hidden = true;
+  paletteIndex = 0;
+}
+
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    $('#palette').hidden ? openPalette() : closePalette();
+  }
+});

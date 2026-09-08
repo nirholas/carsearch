@@ -89,14 +89,29 @@ function control(f) {
   }
 
   const selected = new Set((v.in ?? []).map((x) => x.toLowerCase()));
+  /**
+   * Long vocabularies collapse behind a toggle.
+   *
+   * Trim alone can run to forty values, which pushed every other facet group
+   * below the fold and made the rail feel like the page. Values the user has
+   * already picked are always shown, so a collapsed list never hides an active
+   * filter.
+   */
+  const LIMIT = 8;
+  const ordered = [...options].sort((a, b) => b.n - a.n);
+  const overflow = Math.max(0, ordered.length - LIMIT);
+  const visible = overflow
+    ? [...ordered.slice(0, LIMIT), ...ordered.slice(LIMIT).filter((o) => selected.has(String(o.value).toLowerCase()))]
+    : ordered;
   return `<div class="facet-enum">
     <span class="facet-label">${esc(f.label)}</span>
-    <div class="chips">${options.map((o) => `
+    <div class="chips">${visible.map((o) => `
       <button type="button" class="fchip${selected.has(String(o.value).toLowerCase()) ? ' on' : ''}${o.n === 0 ? ' empty' : ''}"
               data-facet="${esc(f.key)}" data-kind="enum" data-value="${esc(o.value)}"
               ${o.n === 0 ? 'title="no listing in the index carries this value yet"' : ''}>
         ${esc(o.value)} <span class="n">${num(o.n)}</span>
-      </button>`).join('')}</div>
+      </button>`).join('')}${overflow ? `
+      <button type="button" class="fchip more" data-more="${esc(f.key)}">+${overflow} more</button>` : ''}</div>
   </div>`;
 }
 
@@ -134,6 +149,27 @@ export function renderFacets(container, onChange) {
   }).join('');
 
   container.addEventListener('click', (e) => {
+    const more = e.target.closest('.fchip.more');
+    if (more) {
+      // Reveal the rest of this vocabulary in place, without a re-render that
+      // would scroll the rail back to the top.
+      const group = more.parentElement;
+      const key = more.dataset.more;
+      const facet = state.facets.find((f) => f.key === key);
+      if (facet) {
+        const shown = new Set([...group.querySelectorAll('.fchip:not(.more)')].map((c) => c.dataset.value));
+        const rest = (state.vocabularies[key] ?? (facet.values ?? []).map((x) => x.value))
+          .filter((val) => !shown.has(String(val)));
+        const counts = new Map((facet.values ?? []).map((x) => [String(x.value).toLowerCase(), x.n]));
+        more.insertAdjacentHTML('beforebegin', rest.map((val) => `
+          <button type="button" class="fchip${counts.get(String(val).toLowerCase()) ? '' : ' empty'}"
+                  data-facet="${esc(key)}" data-kind="enum" data-value="${esc(val)}">
+            ${esc(val)} <span class="n">${num(counts.get(String(val).toLowerCase()) ?? 0)}</span>
+          </button>`).join(''));
+        more.remove();
+      }
+      return;
+    }
     const chip = e.target.closest('.fchip');
     if (!chip) return;
     const key = chip.dataset.facet;
