@@ -14,7 +14,7 @@ Marketplace and Craigslist hold most private-party supply. Bring a Trailer and C
 enthusiast market. Copart and IAA hold salvage. Manheim holds the wholesale prices that set all of
 the above. Nothing spans them, and every open-source project that tried is abandoned.
 
-Three things nobody gives you, which this project treats as first class:
+Five things nobody gives you, which this project treats as first class:
 
 1. **Deduplication by VIN.** The same car is listed on four sites at once. Listing counts everywhere
    else are inflated, and a buyer scrolling the same Macan five times has a worse experience than one
@@ -24,6 +24,13 @@ Three things nobody gives you, which this project treats as first class:
    asset a competitor cannot simply re-scrape.
 3. **Sold prices, not just asks.** An asking price is what a seller hopes for. Everyone shows those.
    Nobody shows the gap between them and what the market paid.
+4. **Ranking on two objectives at once.** A sort column answers "the cheapest one". Nobody asks that.
+   They ask for the lowest-mileage one they can get without paying stupid money, which is a
+   trade-off, so carsearch computes the Pareto frontier: the cars nothing else beats on every axis
+   you ranked by. See [docs/ranking.md](docs/ranking.md).
+5. **Market data that admits what it does not know.** Depreciation curves, price trends, a valuation
+   for one specific car and a backtest on completed sales, each of which refuses to report a number
+   the data cannot support. See [docs/market-data.md](docs/market-data.md).
 
 ## Quickstart
 
@@ -54,9 +61,43 @@ npx tsx src/cli.ts ask "an old g wagon"
 npx tsx src/cli.ts ask "what did a 2017 macan sell for"
 npx tsx src/cli.ts ask --parse-only "porsche macan under 40k with low miles"
 
+# Fill facet columns from data already held: cached VIN decodes and listing text
+npx tsx scripts/backfill-facets.ts
+
 # Web UI and JSON API
 npm run serve      # http://localhost:8787
 ```
+
+## The API
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/search` | Ranked, deduplicated results. `sort` takes a preset or a blend (`mileage+price`, `mileage:2+price:1`). Every facet is a query parameter. |
+| `GET /api/facets` | Every filterable attribute with its real coverage in the current scope. |
+| `GET /api/market` | The market report for one model: distributions, depreciation curve, trend, backtest, and optionally a valuation for a given mileage. |
+| `GET /api/comps` | Median ask against median sold, and the spread. |
+| `POST /api/ask` | Plain-English search. Returns the interpretation alongside the results. |
+| `GET /api/auctions` | Live bids and completed sales. |
+| `GET /api/sources` | The registry: every source, its status, transport and access method. |
+
+```bash
+# The motivating query, three ways
+curl 'localhost:8787/api/search?make=Porsche&model=Macan&yearMin=2017&yearMax=2017&sort=mileage%2Bprice'
+curl -X POST localhost:8787/api/ask -H 'Content-Type: application/json' \
+     -d '{"q":"2017 porsche macan lowest mileage and cheapest"}'
+curl 'localhost:8787/api/market?make=Porsche&model=Macan&mileage=45000'
+```
+
+## Documentation
+
+| Doc | Covers |
+|---|---|
+| [docs/ranking.md](docs/ranking.md) | The Pareto frontier, blended scores, and why ranking is not done in SQL |
+| [docs/facets.md](docs/facets.md) | All 35 attributes, the coverage machinery, and the unknown-value policy |
+| [docs/market-data.md](docs/market-data.md) | The dashboard, the valuation model, the backtest, and every honesty rule |
+| [docs/sources.md](docs/sources.md) | The full platform survey |
+| [docs/deploy.md](docs/deploy.md) | Cloud Run, Cloud Build, Neon |
+| [docs/roadmap.md](docs/roadmap.md) | What is not built yet |
 
 ## Asking in plain English
 
