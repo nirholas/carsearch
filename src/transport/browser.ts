@@ -172,6 +172,68 @@ export async function evaluateInPage<T>(url: string, fn: () => T, opts: Evaluate
   throw lastError ?? new Error(`failed to evaluate ${url}`);
 }
 
+export interface CapturedResponse {
+  url: string;
+  status: number;
+  /** Parsed JSON body. Non-JSON responses are not captured. */
+  body: unknown;
+  bytes: number;
+}
+
+/**
+ * Loads a page and records the JSON its own frontend fetches.
+ *
+ * Most listing sites are now single-page apps: the HTML is a shell and the
+ * inventory arrives over XHR. Scraping the rendered DOM of one of those is the
+ * worst option available, because it reads a projection of the data through
+ * hashed class names that change on the next deploy. The endpoint underneath is
+ * the site's own contract with its own frontend, and it is both richer and far
+ * more stable.
+ *
+ * This exists so finding that endpoint is a command rather than an afternoon
+ * with devtools. Point it at a search page, read what comes back, and write the
+ * adapter against the endpoint directly.
+ */
+export async function captureJson(
+  url: string,
+  opts: EvaluateOptions & { minBytes?: number } = {},
+): Promise<CapturedResponse[]> {
+  const { waitMs = 6000, timeoutMs = 60_000, scroll = false, minBytes = 500 } = opts;
+  const ctx = await getContext();
+  const page = await ctx.newPage();
+  const captured: CapturedResponse[] = [];
+
+  page.on('response', (res) => {
+    const type = res.headers()['content-type'] ?? '';
+    if (!type.includes('json')) return;
+    void res
+      .text()
+      .then((text) => {
+        if (text.length < minBytes) return;
+        try {
+          captured.push({ url: res.url(), status: res.status(), body: JSON.parse(text), bytes: text.length });
+        } catch {
+          /* a content-type that lied; not worth reporting */
+        }
+      })
+      .catch(() => {
+        /* body already consumed or the request was aborted */
+      });
+  });
+
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    await page.waitForTimeout(waitMs);
+    if (scroll) {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(2500);
+    }
+    return [...captured].sort((a, b) => b.bytes - a.bytes);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 /** The page is not there. Distinct from a block, and never worth retrying. */
 export class NotFoundError extends Error {
   readonly notFound = true;

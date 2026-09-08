@@ -16,7 +16,12 @@ FROM mcr.microsoft.com/playwright:v1.63.0-noble
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --omit=optional && npm cache clean --force
+RUN npm ci --omit=dev --omit=optional \
+    # impit's native binding is an OPTIONAL dependency of impit, so --omit=optional
+    # skips it and the TLS transport throws at first use. The crawler is the only
+    # image that needs it; the web image deliberately does not.
+    && npm install --no-save impit-linux-x64-gnu@0.14.5 \
+    && npm cache clean --force
 COPY --from=build /app/dist ./dist
 USER pwuser
 

@@ -1,4 +1,4 @@
-import { Impit, type ImpitOptions } from 'impit';
+import type { Impit as ImpitType, ImpitOptions } from 'impit';
 
 /**
  * The third transport: a plain HTTP request wearing a browser's TLS handshake.
@@ -21,6 +21,37 @@ import { Impit, type ImpitOptions } from 'impit';
  * same experiment.
  */
 
+/**
+ * impit is loaded on first use, never at import time.
+ *
+ * It is a native module, and its platform binding ships as an OPTIONAL npm
+ * dependency. The production web image installs with `--omit=optional` on
+ * purpose, because that is what keeps better-sqlite3 (the only other native
+ * module) out of a container that must never touch a local database. A
+ * top-level import therefore crashed the web server at startup on a transport
+ * it has no use for: serving a search reads Postgres, it does not crawl.
+ *
+ * Loading it lazily means the web image needs no native binding at all, and the
+ * crawler image, which does crawl, pays for it the first time it asks.
+ */
+type ImpitCtor = new (opts: Partial<ImpitOptions>) => ImpitType;
+let impitCtor: Promise<ImpitCtor> | null = null;
+
+async function loadImpit(): Promise<ImpitCtor> {
+  impitCtor ??= import('impit').then((m) => m.Impit as unknown as ImpitCtor);
+  return impitCtor;
+}
+
+/** True when this process can use the TLS transport at all. */
+export async function tlsAvailable(): Promise<boolean> {
+  try {
+    await loadImpit();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type TlsProfile = 'chrome' | 'firefox';
 
 /** Profiles to try, in order. The winner per host is remembered for the run. */
@@ -28,7 +59,8 @@ const PROFILES: TlsProfile[] = ['chrome', 'firefox'];
 
 const winners = new Map<string, TlsProfile>();
 
-function clientFor(profile: TlsProfile, opts: Partial<ImpitOptions> = {}): Impit {
+async function clientFor(profile: TlsProfile, opts: Partial<ImpitOptions> = {}): Promise<ImpitType> {
+  const Impit = await loadImpit();
   return new Impit({
     browser: profile,
     // Some of these hosts serve an intermediate chain Node rejects while every
@@ -66,7 +98,8 @@ export async function fetchWithTls(url: string, opts: Partial<ImpitOptions> = {}
 
   for (const profile of order) {
     try {
-      const res = await clientFor(profile, opts).fetch(url);
+      const client = await clientFor(profile, opts);
+      const res = await client.fetch(url);
       const body = await res.text();
       const result: TlsResponse = { status: res.status, body, profile, url };
       if (res.status >= 200 && res.status < 300) {
