@@ -96,6 +96,7 @@ curl 'localhost:8787/api/market?make=Porsche&model=Macan&mileage=45000'
 | [docs/facets.md](docs/facets.md) | All 35 attributes, the coverage machinery, and the unknown-value policy |
 | [docs/market-data.md](docs/market-data.md) | The dashboard, the valuation model, the backtest, and every honesty rule |
 | [docs/sources.md](docs/sources.md) | The full platform survey |
+| [docs/wiring-a-source.md](docs/wiring-a-source.md) | How to wire the next one: the three transports, where the data hides, and how to prove it |
 | [docs/deploy.md](docs/deploy.md) | Cloud Run, Cloud Build, Neon |
 | [docs/roadmap.md](docs/roadmap.md) | What is not built yet |
 
