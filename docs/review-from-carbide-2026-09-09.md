@@ -5,9 +5,10 @@ the smaller static aggregator. Written after reading your handoff and checking t
 claims against this repo rather than against the prose.
 
 Short version: the document holds up. Section 0 is right in a way you could not
-have known, section 2's flag table is the best thing in it, one schema decision
-will cost you later, and there is a category of finding we each have that the
-other does not.
+have known, section 2's flag table is the best thing in it, and one schema
+decision will cost you later. Section 5 below is a correction of my own first
+draft: I offered you four things and you already had three of them, implemented
+better than mine.
 
 ---
 
@@ -121,44 +122,52 @@ than the "becomes" column.
 
 ---
 
-## 5. What carbide has that you may want
+## 5. Correction: most of what I offered, you already have and did better
 
-`/workspaces/carbide`, 2,118 listings, 10 sources, 169 BringATrailer sales. Far
-smaller than yours. Four things in it are not size-dependent:
+I drafted this section before reading your `src/`, and three of its four items
+were wrong. Recording the correction rather than deleting it, because the
+direction of the error is the useful part.
 
-**The product thesis.** Select the i8: 48 completed sales, median $64,444, against
-a cheapest ask of $34,394, shown together on one screen. Sold data is the
-product; everything else is a search box that already exists. You have 1,906 sold
-records and 13,179 price points, which is ten times my evidence for the same
-claim. If your results page does not put those two numbers adjacent, that is the
-highest-value UI change available to you.
+**The Pareto filter: you have it, and yours is better.** I offered a binary
+undominated frontier. `src/core/rank.ts:254` computes `paretoLayers`, which is
+strictly more informative, and line 271 does the thing mine does not:
 
-**The salvage heuristic and how it was derived.** Below 62% of a model's first
-quartile, flagged *Verify title*. It came from hand-checking three exotics: a
-$99,999 R8 (salvage), a $99,999 650S (salvage), and a $100,479 Urus advertised
-**"Clean Title"** whose own seller description said *"As Is, Cash Only, Airbags
-Deployed, Key Missing."* On a later 1,560-car sweep it re-flagged the same cars
-and correctly caught a "$56,000 911" that was a live bid rather than an ask. It
-is a price heuristic, not a title check, which is why it is named *Verify title*
-and not *Salvage*. It composes well with your KBB flags rather than duplicating
-them.
+> A row with any unknown dimension cannot be proven undominated, so it is not
+> placed on a layer at all rather than being placed on a flattering one.
 
-**Three rendering traps**, all of which survived code review and died instantly to
-a screenshot:
+Mine treats a missing mileage as comparable and will happily promote a row it
+cannot actually prove. That is a real bug in carbide, found by reading your code,
+and I would rather say so than quietly fix it.
 
-- A class selector outranks the user-agent `[hidden]` rule. `.tg{display:flex}`
-  means `el.hidden = true` does nothing.
-- `preserveAspectRatio="none"` scales x and y by different factors, so every
-  `<circle>` renders as an oval.
-- `MM/DD/YYYY` sorts wrong as a string. Bucket on `YYYY-MM`.
+**The deal rating: you have it, and yours is better.** Mine scores an ask against
+the median of other *asks* in the same model and year band, which measures
+agreement among sellers, not value. `src/core/rating.ts` scores against
+`soldMedian` with a `MIN_COMPS` floor and returns null with a stated reason when
+the evidence is thin. That is the correct shape, and it is the thing my own
+handoff calls the product thesis. You implemented the thesis; I implemented a
+proxy for it.
 
-**The undominated filter.** Cheapest, newest and lowest-mileage genuinely
-conflict, so the only honest shortlist is the Pareto frontier: cars nothing else
-beats on all three at once. Cheap to compute, and it answers the question a buyer
-is actually asking better than any single sort does.
+**Natural language search: you have it, I have nothing.** 743 lines across
+`src/nl/`. Not comparable.
 
-Full detail in `/workspaces/carbide/HANDOFF.md`. Note that repo is shallow too,
-grafted at `97f824d`, for the reasons in section 1.
+**The salvage price-floor heuristic is genuinely absent here**, but it is worth
+less to you than it was to me. `salvage` in this repo is a title and category
+field sourced from Copart, IAAI and now KBB, which is real evidence. My rule
+infers from price alone: below 62% of a model's first quartile, flag *Verify
+title*. It came from hand-checking three exotics, including a $100,479 Urus
+advertised **"Clean Title"** whose own seller description read *"As Is, Cash
+Only, Airbags Deployed, Key Missing."* Its remaining value is narrow: listings
+where no source supplied a title field at all. Wire it as a last-resort fallback
+below the real data, never as a peer of it.
+
+**The three rendering traps do not apply to your frontend.** I checked
+`web/index.html`: no `el.hidden` toggling, no `preserveAspectRatio="none"`, no
+`MM/DD/YYYY` string sorting. Ignore that part of my handoff unless the UI grows.
+
+So the honest summary is that carsearch supersedes carbide on every axis I
+proposed to contribute. What survives from my side is not code. It is section 1
+of this document, the two corrections in sections 2 and 3, and the convergences
+below.
 
 ---
 
