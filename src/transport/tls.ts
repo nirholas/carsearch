@@ -52,10 +52,25 @@ export async function tlsAvailable(): Promise<boolean> {
   }
 }
 
-export type TlsProfile = 'chrome' | 'firefox';
+export type TlsProfile = 'chrome' | 'firefox133' | 'firefox' | 'chrome124' | 'okhttp';
 
-/** Profiles to try, in order. The winner per host is remembered for the run. */
-const PROFILES: TlsProfile[] = ['chrome', 'firefox'];
+/**
+ * Profiles to try, in order. The winner per host is remembered for the run.
+ *
+ * The bare `chrome` and `firefox` aliases are not enough, and assuming they
+ * were cost this project a source. Hemmings refuses `firefox` with a 403 and
+ * answers `firefox133` with 200 and 692KB, so the alias points at a build old
+ * enough to be fingerprinted while a pinned recent one is not. It had been
+ * recorded as blocked to all three transports on the strength of the alias.
+ *
+ * These five cover the distinct fingerprint families impit offers rather than
+ * every version it ships: modern Chrome, modern Firefox, the older Firefox the
+ * alias resolves to, a pinned older Chrome, and the okhttp (mobile) family.
+ * impit has no Safari profile at any version, which is a real gap: field notes
+ * from the carbide prototype reached AutoNation with `safari17_0` via
+ * curl_cffi, and all eleven profiles available here still get 403.
+ */
+const PROFILES: TlsProfile[] = ['chrome', 'firefox133', 'firefox', 'chrome124', 'okhttp'];
 
 const winners = new Map<string, TlsProfile>();
 
@@ -130,10 +145,17 @@ export async function fetchWithTls(
   let last: TlsResponse | null = null;
   let lastError: Error | null = null;
 
-  // Each profile, then each profile again after a pause. A host that refuses
-  // both profiles instantly is refusing us; one that clears after a wait was
-  // throttling.
-  const attempts: (TlsProfile | number)[] = [...order, ...RETRY_DELAYS_MS.flatMap((d) => [d, ...order])];
+  /**
+   * Every profile once, then only the two most likely again after a pause.
+   *
+   * The first pass is about fingerprint coverage and costs one request each.
+   * The retries are about throttling, not fingerprints: a host that refused all
+   * five instantly is refusing us, and re-running all five twice more turns one
+   * blocked source into fifteen requests at it. Two is enough to tell a
+   * rate limit from a block.
+   */
+  const retryOrder = order.slice(0, 2);
+  const attempts: (TlsProfile | number)[] = [...order, ...RETRY_DELAYS_MS.flatMap((d) => [d, ...retryOrder])];
 
   for (const step of attempts) {
     if (typeof step === 'number') {
