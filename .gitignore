@@ -25,3 +25,5 @@ data/ui-*.png
 data/epa-cache.json
 data/*.png
 data/*-cache.json
+data/kbb-index-done.txt
+data/kbb-index.log
