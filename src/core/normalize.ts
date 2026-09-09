@@ -1,5 +1,6 @@
 import type { Listing, RejectedListing } from './types.js';
 import { loadVocabulary } from '../nl/vocabulary.js';
+import { resolveTrim } from './trim.js';
 import { canonicalBodyType, canonicalFuelType, canonicalColor, blankToNull } from './canonical.js';
 import { BRANDED_TITLES } from './facets.js';
 
@@ -430,6 +431,13 @@ export function validate(listings: Listing[]): ValidationResult {
   const repaired = listings.map((l) => {
     const make = canonicalMake(l.make);
     const model = canonicalModel(resolveModel(l.title, make, l.model));
+    /**
+     * Trim is resolved here, beside the model, because the peer groups built
+     * below are only as honest as the definition of a peer. A 2016 Cayman GT4
+     * and a base 2016 Cayman are not peers, and merging them puts the cohort's
+     * lower quartile in the middle of the expensive cluster.
+     */
+    const trim = resolveTrim(l.title, make, model, l.trim);
     const bodyType = canonicalBodyType(l.bodyType);
     const fuelType = canonicalFuelType(l.fuelType);
     const exteriorColor = canonicalColor(l.exteriorColor);
@@ -438,7 +446,7 @@ export function validate(listings: Listing[]): ValidationResult {
     if (
       make === l.make && model === l.model && bodyType === l.bodyType && fuelType === l.fuelType &&
       exteriorColor === l.exteriorColor && interiorColor === l.interiorColor &&
-      blankToNull(l.series) === l.series && blankToNull(l.trim) === l.trim
+      blankToNull(l.series) === l.series && trim === l.trim
     ) {
       return l;
     }
@@ -448,7 +456,7 @@ export function validate(listings: Listing[]): ValidationResult {
       make,
       model,
       series: blankToNull(l.series),
-      trim: blankToNull(l.trim),
+      trim,
       bodyType,
       fuelType,
       exteriorColor,

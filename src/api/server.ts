@@ -6,6 +6,7 @@ import type { SearchFilters } from '../store/store.js';
 import { SOURCES, registryStats, ADAPTERS } from '../sources/index.js';
 import { dedupe, dedupeStats } from '../core/dedupe.js';
 import { rateListing } from '../core/rating.js';
+import { titleRisk } from '../core/title-risk.js';
 import { recallsFor } from '../enrich/recalls.js';
 import { run } from '../pipeline.js';
 import type { PriceKind } from '../core/types.js';
@@ -84,6 +85,36 @@ app.get('/api/sources', (c) =>
     sources: SOURCES,
   }),
 );
+
+/**
+ * Title risk for a whole pool, cohorted in memory.
+ *
+ * Unlike the deal rating this needs asking prices, not sold ones, and the pool
+ * already in hand is the right population: it is the set the user is looking
+ * at, filtered the way they filtered it. No extra query, and MIN_COHORT
+ * suppresses the flag by itself when a cohort is too thin to have a floor.
+ *
+ * TRIM IS PART OF THE KEY and removing it breaks this outright: a base Cayman
+ * in a cohort of GT4s reads as 43% underpriced. See core/title-risk.ts.
+ *
+ * The year band is two wide because a facelift moves price more than a model
+ * year does, and a one-year cohort on a slow seller is never big enough.
+ */
+function titleRiskAll(rows: Listing[]) {
+  const cohortKey = (l: Listing) =>
+    `${l.make ?? ''}|${l.model ?? ''}|${l.trim ?? '~base'}|${Math.floor((l.year ?? 0) / 2) * 2}`.toLowerCase();
+
+  const prices = new Map<string, number[]>();
+  for (const l of rows) {
+    if (l.price === null || l.priceKind !== 'ask') continue;
+    const key = cohortKey(l);
+    let bucket = prices.get(key);
+    if (!bucket) prices.set(key, (bucket = []));
+    bucket.push(l.price);
+  }
+
+  return new Map(rows.map((l) => [l.id, titleRisk(l, prices.get(cohortKey(l)) ?? [])] as const));
+}
 
 /**
  * Search the index.
@@ -198,6 +229,8 @@ app.get('/api/search', async (c) => {
   const pool = await store.search({ ...filters, sort: sqlSort, limit: RANK_POOL, offset: 0 });
   const groups = dedupe(pool);
   const deals = await rateAll(groups.map((g) => g.primary));
+  // Cohorted over the whole pool, not the page, so paging cannot change a flag.
+  const titleRisks = titleRiskAll(pool);
 
   const rankInputs = groups.map((g) => {
     const deal = deals.get(g.primary.id);
@@ -246,6 +279,8 @@ app.get('/api/search', async (c) => {
           alsoOn: g.sources.filter((x) => x !== g.primary.sourceId),
           matchConfidence: g.confidence,
           deal: deals.get(g.primary.id),
+          /** Present only when the price is unexplained AND no source spoke. */
+          titleRisk: titleRisks.get(g.primary.id)?.suspect ? titleRisks.get(g.primary.id) : undefined,
           rank: {
             score: Math.round(r.score * 1000) / 1000,
             /** 1 means undominated: nothing in the set is better on every axis. */

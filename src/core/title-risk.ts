@@ -24,27 +24,26 @@ import type { Listing } from './types.js';
  * a "$56,000 911" that turned out to be a live auction bid rather than an ask,
  * which is handled here by refusing to rate anything that is not an ask.
  *
- * NOT WIRED, AND MUST NOT BE UNTIL `trim` IS POPULATED.
+ * The cohort must be keyed on trim, and that is not a detail.
  *
- * Measured against the live index on 2026-09-09: wiring this into /api/search
- * produced four flags, and all four were false positives caused by trim, not by
- * title. The cohort `|cayman|2016` holds twenty cars priced $50,998 to $124,999,
- * and eighteen of them are GT4s. Its lower quartile is therefore $90,216, so a
- * correctly-priced base Cayman at $50,998 reads as 43% under the floor. The same
- * defect flagged a base Boxster in a cohort of Spyders.
+ * Wired without it on 2026-09-09 this produced four flags and all four were
+ * false positives. The cohort `|cayman|2016` holds twenty cars from $50,998 to
+ * $124,999 and eighteen are GT4s, so its lower quartile is $90,216 and a
+ * correctly-priced base Cayman reads as 43% under the floor. A dispersion guard
+ * was tried and rejected: it suppresses that cohort's sibling (p90/p10 of 2.41)
+ * but not the Cayman one (1.62), because when the cheap subgroup is small both
+ * percentiles land inside the expensive cluster. No threshold separates them,
+ * since the problem is not spread, it is two different cars sharing a name.
  *
- * A dispersion guard was tried and rejected: it suppresses the Boxster cohort
- * (p90/p10 of 2.41) but not the Cayman one (1.62), because when the cheap
- * subgroup is small both percentiles sit inside the expensive cluster. There is
- * no threshold that separates them, since the problem is not spread, it is that
- * two different cars share a name.
+ * `core/trim.ts` now resolves the variant, and re-running the same measurement
+ * with trim in the cohort key drops those four flags to one: a 2024 Taycan Base
+ * at $48,921 with 15,747 miles, against a trim-matched cohort whose cheapest
+ * comparable is $88,900. That is the shape this rule is for.
  *
- * `trim` is null on every row in the index today, and the distinguishing string
- * ("Cayman 981 GT4" versus "Cayman Base") is sitting unparsed in `title`.
- * Populating trim in normalize.ts unblocks this and improves cohorting, deal
- * rating and dedupe at the same time, which is a better use of the effort than
- * anything this file does. Until then it stays unreferenced on purpose, and the
- * tests below hold its contract so it does not rot.
+ * Residual risk worth knowing: a car whose trim did not parse falls into the
+ * base bucket. An expensive one landing there raises the floor and makes a
+ * false positive MORE likely, not less, so the failure is not safe by default.
+ * Widening the tables in `trim.ts` is what shrinks it.
  *
  * What this does NOT do, on purpose:
  *
