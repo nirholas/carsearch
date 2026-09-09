@@ -252,10 +252,25 @@ export interface Trend {
    * noise as a market trend.
    */
   direction: 'rising' | 'falling' | 'flat' | 'unknown';
+  /** Days between the first and last dated sale. A monthly rate needs MIN_TREND_SPAN_DAYS. */
+  spanDays: number;
 }
 
 /** Below this r2 a slope is noise. Kept here so the trend reports its own honesty. */
 export const MIN_TREND_R2 = 0.15;
+
+/**
+ * A monthly rate needs at least this many days of observations behind it.
+ *
+ * Without it the slope is extrapolated rather than measured, and the arithmetic
+ * turns a mild drift across eleven days into a headline. A live Porsche 911
+ * report read "down +1781.2% a month" off a window running 2026-08-27 to
+ * 2026-09-07: no market moves like that, and nothing about the number said it
+ * had been projected from a week and a half.
+ *
+ * Forty-five days makes a per-month figure interpolation instead of a guess.
+ */
+export const MIN_TREND_SPAN_DAYS = 45;
 
 const DAY = 86_400_000;
 
@@ -287,7 +302,7 @@ export function trendOverTime(
     .sort((a, b) => a.t - b.t);
 
   if (dated.length === 0) {
-    return { points: [], bucket: 'month', dollarsPerMonth: null, percentPerMonth: null, r2: null, from: null, to: null, populatedBuckets: 0, direction: 'unknown' };
+    return { points: [], bucket: 'month', dollarsPerMonth: null, percentPerMonth: null, r2: null, from: null, to: null, populatedBuckets: 0, direction: 'unknown', spanDays: 0 };
   }
 
   const spanDays = (dated[dated.length - 1]!.t - dated[0]!.t) / DAY;
@@ -320,17 +335,29 @@ export function trendOverTime(
   const fit = linearFit(dated.map((s) => ({ x: monthsFrom(s.t), y: s.price })));
   const level = median(dated.map((s) => s.price)) ?? 0;
 
+  /**
+   * A window shorter than a month cannot state a monthly rate, however tight
+   * the fit is. That is a different failure from a noisy one, so it reports
+   * 'unknown' (not enough dated sales to say) rather than 'flat' (they move,
+   * the trend does not).
+   */
   const direction: Trend['direction'] =
     !fit ? 'unknown'
+    : spanDays < MIN_TREND_SPAN_DAYS ? 'unknown'
     : fit.r2 < MIN_TREND_R2 ? 'flat'
     : fit.slope > 0 ? 'rising'
     : 'falling';
 
+  // Withheld with the direction, so no caller can render a rate the window
+  // never supported.
+  const rateSupported = direction === 'rising' || direction === 'falling' || direction === 'flat';
+
   return {
     points,
     bucket,
-    dollarsPerMonth: fit ? fit.slope : null,
-    percentPerMonth: fit && level > 0 ? (fit.slope / level) * 100 : null,
+    dollarsPerMonth: fit && rateSupported ? fit.slope : null,
+    percentPerMonth: fit && rateSupported && level > 0 ? (fit.slope / level) * 100 : null,
+    spanDays,
     r2: fit ? fit.r2 : null,
     from: dated[0]!.date,
     to: dated[dated.length - 1]!.date,

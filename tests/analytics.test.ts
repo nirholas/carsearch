@@ -79,17 +79,36 @@ test('the ownership forecast is depreciation only, and says so', () => {
 });
 
 test('a trend weights each sale, not each bucket', () => {
-  // One outlier week with a single sale must not set the direction against
+  // One outlier bucket with a single sale must not set the direction against
   // forty sales pointing the other way.
+  //
+  // Spread across four months on purpose. The weighting question is what this
+  // test is about, but a rate is only published once the window is at least
+  // MIN_TREND_SPAN_DAYS long, so a fortnight of sales would assert nothing.
   const sales = [
-    ...Array.from({ length: 40 }, () => ({ date: '2026-07-06', price: 20_000 })),
-    { date: '2026-07-13', price: 90_000 },
-    ...Array.from({ length: 40 }, () => ({ date: '2026-07-20', price: 20_500 })),
+    ...Array.from({ length: 40 }, () => ({ date: '2026-05-06', price: 20_000 })),
+    { date: '2026-06-13', price: 90_000 },
+    ...Array.from({ length: 40 }, () => ({ date: '2026-08-20', price: 20_500 })),
   ];
   const t = trendOverTime(sales);
-  assert.equal(t.bucket, 'week');
   assert.equal(t.populatedBuckets, 3);
+  assert.ok(t.spanDays >= 45, 'the sample must be long enough for a rate to be stated at all');
   assert.ok(t.dollarsPerMonth !== null && t.dollarsPerMonth > 0, 'the 80 flat sales win over the single spike');
+});
+
+test('a rate is withheld when the window is too short to have measured one', () => {
+  // A live Porsche 911 report read "down +1781.2% a month" off eleven days of
+  // sales. The fit was real; the monthly rate was extrapolated from a week and
+  // a half, and nothing in the number said so.
+  const sales = Array.from({ length: 30 }, (_, i) => ({
+    date: `2026-09-${String((i % 11) + 1).padStart(2, '0')}`,
+    price: 100_000 + i * 500,
+  }));
+  const t = trendOverTime(sales);
+  assert.ok(t.spanDays < 45, 'this sample is deliberately short');
+  assert.equal(t.direction, 'unknown', 'too short to claim a direction, which is not the same as flat');
+  assert.equal(t.dollarsPerMonth, null, 'no monthly rate may escape a sub-monthly window');
+  assert.equal(t.percentPerMonth, null);
 });
 
 test('a backtest over a short window refuses to annualize', () => {

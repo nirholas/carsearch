@@ -266,13 +266,24 @@ function headline(report) {
    * the slope explains too little variance to claim one, and printing the raw
    * percent-per-month there would be the most misleading number on the page.
    */
+  /**
+   * The direction word already carries the sign, so the magnitude must not.
+   * `pct` prefixes a + on any positive number, and pairing it with an unsigned
+   * magnitude produced "down +1781.2% a month", which reads as a typo and was
+   * in fact two separate bugs: this one, and a rate projected from eleven days.
+   */
+  const magnitude = (n) => (n === null || n === undefined ? '-' : `${Math.abs(n).toFixed(1)}%`);
   const trendValue =
-    trend.direction === 'rising' ? `up ${pct(trend.percentPerMonth)} a month`
-    : trend.direction === 'falling' ? `down ${pct(Math.abs(trend.percentPerMonth))} a month`
+    trend.direction === 'rising' ? `up ${magnitude(trend.percentPerMonth)} a month`
+    : trend.direction === 'falling' ? `down ${magnitude(trend.percentPerMonth)} a month`
     : trend.direction === 'flat' ? 'no clear direction'
     : 'not enough dated sales';
   const trendNote =
     trend.direction === 'flat' ? `prices move, the trend does not (fit explains ${Math.round((trend.r2 ?? 0) * 100)}%)`
+    // A window shorter than a month cannot state a monthly rate, and saying so
+    // is more useful than the bucket count that used to appear here.
+    : trend.direction === 'unknown' && trend.from
+      ? `only ${Math.round(trend.spanDays ?? 0)} days of dated sales, too short to read a monthly rate`
     : trend.from ? `${trend.populatedBuckets} ${trend.bucket}s, ${trend.from} to ${trend.to}`
     : 'no completed sales carry a date';
 
