@@ -55,17 +55,35 @@ const TRIMS: Record<string, string[]> = {
     'Carrera 4S', 'Carrera 4 GTS', 'Carrera GTS', 'Carrera 4', 'Carrera S', 'Carrera T', 'Carrera',
     'Targa 4S', 'Targa 4', 'Targa',
     'Spyder RS', 'Spyder', 'Speedster', 'Dakar', 'Sport Turismo', 'Cross Turismo',
-    'GTS 4.0', 'GTS', 'Black Edition', 'Style Edition', 'Platinum Edition',
-    '4S', '4', 'S',
+    'GTS 4.0', 'GTS',
+    // Named editions only. A bare 'Edition' would read "Wombat Edition" as
+    // "Edition" and merge every unknown special into one bucket, which is the
+    // GT4 problem mirrored: collapsing distinct cars instead of splitting one.
+    // Panamera Edition is the real casualty and it sits with the base cars.
+    'Black Edition', 'Style Edition', 'Platinum Edition', 'Sport Edition',
+    'Executive', '4S', '4', 'S',
+    // The 718 T is a real variant and a real price step. A single letter is only
+    // safe because the model has already been stripped from the remainder, so
+    // "718 Boxster T" reduces to "T" and nothing else can reach this.
+    'T',
   ],
   chevrolet: ['ZR1', 'Z06', 'E-Ray', 'Grand Sport', 'Stingray', 'SS', 'ZL1', 'Z51'],
   audi: ['RS 5', 'RS 7', 'V10 Performance', 'V10 Plus', 'V10 Spyder', 'V10', 'V8', 'Prestige', 'Premium Plus'],
-  bmw: ['Competition', 'CS', 'CSL', 'M Sport', 'xDrive50i', 'sDrive'],
+  bmw: [
+    // The i8 special editions carry a real premium over a base i8 and were
+    // landing in the base cohort with it.
+    'Protonic Frozen Yellow Edition', 'Protonic Frozen Black Edition',
+    'Protonic Red Edition', 'Protonic Blue Edition', 'Protonic Silver Edition',
+    'Competition', 'CS', 'CSL', 'M Sport', 'xDrive50i', 'sDrive',
+  ],
   'mercedes-benz': ['AMG GT R', 'AMG GT S', 'Black Series', 'AMG', 'Maybach', '4x4 Squared'],
   lamborghini: ['Performante', 'Tecnica', 'STO', 'SVJ', 'SV', 'EVO', 'LP 610-4', 'LP 580-2', 'Spyder', 'Roadster'],
   ferrari: ['Pista', 'Speciale', 'Aperta', 'Spider', 'Lusso', 'GTS', 'GTB', 'Scuderia'],
   mclaren: ['LT Spider', 'LT', 'Spider', 'S', 'GT'],
-  bentley: ['Speed', 'Mulliner', 'First Edition', 'GT', 'GTC', 'S'],
+  // 'GT' is deliberately absent: "Continental GT" is the MODEL, and reading it
+  // as a trim assigns the same value to the V8, the W12 and the Speed, which
+  // are the three cars whose prices actually differ.
+  bentley: ['W12 Onyx Edition', 'Onyx Edition', 'First Edition', 'Mulliner', 'Speed', 'Azure', 'W12', 'GTC', 'V8', 'S'],
   aston: ['Vantage S', 'Superleggera', 'Volante', 'S'],
   nissan: ['NISMO', 'Track Edition', 'Premium'],
   toyota: ['TRD Pro', 'TRD', 'Limited', 'Platinum'],

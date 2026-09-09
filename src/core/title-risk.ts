@@ -69,6 +69,18 @@ export const FLOOR_RATIO = 0.62;
 /** Below this many priced comparables the quartile is noise, not a floor. */
 export const MIN_COHORT = 8;
 
+/**
+ * Below this the advice costs more than the car.
+ *
+ * The output of this flag is "pay for a title report and think twice before
+ * travelling". An NMVTIS report is about $10, so on a $1,000 Altima that
+ * counsel is uneconomic even when the ratio is real, and a run over production
+ * showed exactly that: two of six flags were $1,000 beaters whose cohort
+ * quartile was $2,000. The ratio was not wrong, the advice was. This rule earns
+ * its keep on the money at risk, not on the percentage.
+ */
+export const MIN_PRICE = 5_000;
+
 export interface TitleRisk {
   /** True only when the price is unexplained by anything the index knows. */
   suspect: boolean;
@@ -105,6 +117,10 @@ export function titleRisk(
   }
   if (listing.accidents !== null || listing.accidentFree !== null) {
     return none('accident history is published for this car, no inference needed');
+  }
+
+  if (listing.price < MIN_PRICE) {
+    return none(`under $${MIN_PRICE.toLocaleString('en-US')}, where a title report costs more than the risk`);
   }
 
   const priced = cohortPrices.filter((p) => Number.isFinite(p) && p > 0);

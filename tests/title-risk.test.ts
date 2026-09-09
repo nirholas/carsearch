@@ -85,3 +85,14 @@ test('the reason is written for a buyer, not a developer', () => {
   assert.match(r.reason, /\$100,000/);
   assert.match(r.reason, /Verify the title/);
 });
+
+test('a car cheaper than a title report produces no opinion', () => {
+  // Two of six production flags were $1,000 beaters. The ratio was real and the
+  // advice was not: a ~$10 NMVTIS report is not worth buying for a $1,000 car.
+  const beaters = [2000, 2000, 2000, 2500, 3000, 3200, 3500, 4000];
+  const r = titleRisk(ask(1_000), beaters);
+  assert.equal(r.suspect, false);
+  assert.match(r.reason, /costs more than the risk/);
+  // The same ratio on real money still fires.
+  assert.equal(titleRisk(ask(55_000), COHORT).suspect, true);
+});
