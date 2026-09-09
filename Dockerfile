@@ -36,6 +36,20 @@ RUN npm ci --omit=dev --omit=optional && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY web ./web
 
+# Normalize what COPY carried over from the build context.
+#
+# COPY preserves the source mode on nested directories, and the container serves
+# as pwuser (uid 1001), which is "other" against root-owned files. A deploy
+# packaged from a tree whose directories were mode 756 produced /app/web/vendor
+# with no execute bit for other, so pwuser could not traverse it: the chart
+# library was present in the image and unreachable, and the market dashboard
+# drew nothing in production while every build stayed green. Docker happens to
+# normalize the top-level COPY destination, which is why /app/web/app.js served
+# and only the nested directory broke.
+#
+# a+rX (capital X) sets execute on directories only, never on data files.
+RUN chmod -R a+rX ./web ./dist
+
 # Plain node against compiled output. Running the TypeScript directly would put
 # a transpiler in the serving path, and resolving it through npx re-fetches it
 # from the registry on every cold start, which fails wherever egress is closed.
