@@ -27,3 +27,8 @@ data/*.png
 data/*-cache.json
 data/kbb-index-done.txt
 data/kbb-index.log
+
+# Generated index artifacts. The vocabulary is the exception: crawl scripts read
+# it to know which makes exist, so a fresh clone needs it committed.
+data/*
+!data/vehicle-vocab.json

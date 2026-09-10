@@ -12,37 +12,88 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-# Newline separated, because half these makes contain a space or a hyphen that
+# Makes come from the vocabulary, not from a list in this file.
+#
+# The hardcoded list held 28 marques and did not include McLaren, which was
+# already in the index from another source: a crawl script that names its own
+# makes drifts from the catalogue the moment either changes. data/vehicle-vocab.json
+# is built from the free NHTSA vPIC catalogue by scripts/build-vocab.ts and
+# carries every make vPIC recognises, so pointing at it is what "all makes"
+# actually means.
+#
+# Newline separated, because half these names contain a space or a hyphen that
 # must survive intact: the adapter compares each record's own make against the
 # requested one, and "Mercedes Benz" is not "Mercedes-Benz".
-MAKES=${MAKES:-"Porsche
+#
+# Override for a targeted pass:  MAKES="Porsche
+# BMW" ./scripts/kbb-index.sh
+#
+# The productive marques are crawled FIRST. vPIC lists hundreds of kit-car and
+# coachbuilder names that will return nothing, and a run that dies on a recycled
+# Codespace should have spent its time on the makes that carry inventory.
+LEAD="Porsche
 BMW
 Mercedes-Benz
 Audi
-Lexus
 Toyota
 Honda
 Ford
 Chevrolet
+Lexus
 Jeep
+Nissan
 Subaru
 Mazda
-Nissan
 Volkswagen
+Hyundai
+Kia
+Ram
+GMC
+Dodge
+Cadillac
 Acura
+Infiniti
+Buick
+Chrysler
+Lincoln
+Mitsubishi
 Land Rover
 Volvo
+Jaguar
+Mini
 Tesla
+Rivian
+Lucid
+Genesis
+Alfa Romeo
+Maserati
 Ferrari
 Lamborghini
+McLaren
 Aston Martin
 Bentley
 Rolls-Royce
-Maserati
-Alfa Romeo
-Genesis
-Rivian
-Lucid"}
+Bugatti
+Lotus
+Polestar
+Fiat"
+
+if [ -n "${MAKES:-}" ]; then
+  :
+elif [ -f data/vehicle-vocab.json ]; then
+  REST=$(node -e "
+    const v = require('./data/vehicle-vocab.json');
+    const lead = new Set(process.argv[1].split('\n').map(s => s.trim().toLowerCase()));
+    const pretty = s => s.split(/([ -])/).map(w => /^[a-z]/.test(w) ? w[0].toUpperCase() + w.slice(1) : w).join('');
+    console.log(v.makes.filter(m => !lead.has(m)).map(pretty).join('\n'));
+  " "$LEAD")
+  MAKES="$LEAD
+$REST"
+  echo "makes: $(echo "$LEAD" | grep -c .) known-productive + $(echo "$REST" | grep -c .) from the vPIC catalogue"
+else
+  MAKES="$LEAD"
+  echo "no data/vehicle-vocab.json; run scripts/build-vocab.ts to reach every make" >&2
+fi
 
 # Resume state. A full pass is roughly three quarters of an hour and this
 # Codespace recycles without warning, which killed a run at make 4 of 28 and

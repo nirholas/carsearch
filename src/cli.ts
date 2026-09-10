@@ -139,7 +139,7 @@ program
   .description('Completed sale prices for a vehicle, the number no incumbent shows')
   .requiredOption('--make <make>')
   .requiredOption('--model <model>')
-  .option('--min-year <n>', 'minimum model year', Number, 1990)
+  .option('--min-year <n>', 'minimum model year', Number, 1900)
   .option('--max-year <n>', 'maximum model year', Number, new Date().getFullYear() + 1)
   .option('--db <path>', 'sqlite path', 'data/carsearch.db')
   .action(async (o: Record<string, unknown>) => {

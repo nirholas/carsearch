@@ -157,12 +157,22 @@ const NON_VEHICLE = /\b(display model|scale model|model car|poster|sign|neon|mem
 /** Mileage values that are display roundings rather than odometer readings. */
 const ROUND_MILEAGE = new Set([100, 500, 1000, 2000, 3000, 4000, 5000, 10000, 15000, 20000, 25000, 50000, 100000]);
 
+/**
+ * The year floor is 1900, not 1950.
+ *
+ * The old bound silently discarded the year on every pre-war car, and those are
+ * not a rounding error on an index carrying Bring a Trailer: a 1932 Ford or a
+ * 1949 Cadillac arrived with a null year, which drops it out of every year
+ * filter, every cohort and every comps lookup while still sitting in the table.
+ * A car whose year we refuse to read is worse than one we never crawled,
+ * because it looks like coverage and behaves like a hole.
+ */
 export function parseYear(title: string): number | null {
-  const m = title.match(/\b(19[5-9]\d|20[0-4]\d)\b/);
+  const m = title.match(/\b(19\d\d|20[0-4]\d)\b/);
   if (!m?.[1]) return null;
   const y = Number(m[1]);
   const next = new Date().getFullYear() + 2;
-  return y >= 1950 && y <= next ? y : null;
+  return y >= 1900 && y <= next ? y : null;
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -225,8 +235,24 @@ export function parseMake(title: string): string | null {
  */
 export function parseModel(title: string, make: string | null): string | null {
   if (!title) return null;
-  const text = title.toLowerCase();
   const makeLower = make?.toLowerCase() ?? null;
+
+  /**
+   * Everything up to and including the model year is dropped BEFORE either
+   * lookup, not just before the fallback.
+   *
+   * The catalogue path used to search the raw title, which was survivable while
+   * the vocabulary was a 47-make seed and became wrong the moment it held the
+   * full vPIC catalogue: "Vantage-Specification 1974 Aston Martin V8 Series 3"
+   * matched the real Aston Martin model "Vantage" in the seller's preamble and
+   * returned it instead of the V8 that car actually is. The story an enthusiast
+   * site puts in front of the year is not part of the vehicle's identity.
+   */
+  const yearAt = title.match(/\b(19|20)\d{2}(?:\.\d)?\b/);
+  const stripped = yearAt
+    ? title.slice(yearAt.index! + yearAt[0].length).trim()
+    : title.replace(/^\s*(19|20)\d{2}\s+/, '');
+  const text = stripped.toLowerCase();
 
   if (makeLower) {
     const catalogue = loadVocabulary().models[makeLower] ?? [];
@@ -238,19 +264,7 @@ export function parseModel(title: string, make: string | null): string | null {
     if (hit) return hit;
   }
 
-  /**
-   * Fall back to the word after the make.
-   *
-   * Everything up to and including the model year is dropped, not just a
-   * LEADING year: enthusiast auction titles put the story first, so
-   * "29-Years-Owned 1994 Acura NSX 5-Speed" would otherwise yield a model of
-   * "29-Years-Owned", and "Vantage-Specification 1974 Aston Martin V8" a model
-   * of "Vantage-Specification".
-   */
-  const yearAt = title.match(/\b(19|20)\d{2}(?:\.\d)?\b/);
-  const stripped = yearAt
-    ? title.slice(yearAt.index! + yearAt[0].length).trim()
-    : title.replace(/^\s*(19|20)\d{2}\s+/, '');
+  /** Fall back to the word after the make, in the same post-year remainder. */
   const afterMake = makeLower && stripped.toLowerCase().startsWith(makeLower)
     ? stripped.slice(makeLower.length).trim()
     : stripped;
