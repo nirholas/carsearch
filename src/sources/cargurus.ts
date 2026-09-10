@@ -121,6 +121,16 @@ function buildCodeTable(makes: Filter[]): CodeTable {
 
 const SEED_URL = 'https://www.cargurus.com/Cars/l-Used-Porsche-m48';
 
+/**
+ * A ceiling, not an expectation. The loop exits on a page that adds no cars.
+ *
+ * CarGurus paginates with `#resultsPage=N` and the adapter read only the first
+ * page, so every car past the first tile set was invisible. A source that is
+ * silently truncated is indistinguishable from a source with thin inventory,
+ * which is exactly how this survived.
+ */
+const MAX_PAGES = 60;
+
 function slug(s: string): string {
   return s.replace(/\s+/g, '-');
 }
@@ -163,8 +173,12 @@ export const cargurus: SourceAdapter = {
     }
 
     for (const target of targets) {
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const before = out.size;
       try {
-        const { tiles } = await evaluateInPage(target.url, EXTRACT, { waitMs: 6000, scroll: false });
+        const pageUrl = page === 1 ? target.url : `${target.url}?page=${page}#resultsPage=${page}`;
+        const { tiles } = await evaluateInPage(pageUrl, EXTRACT, { waitMs: 6000, scroll: false });
+        if (tiles.length === 0) break;
 
         for (const t of tiles) {
           // Ad tiles carry no ontology and no id; they are not inventory.
@@ -237,9 +251,18 @@ export const cargurus: SourceAdapter = {
           });
         }
         const vins = tiles.filter((t) => isValidVin(t.vin)).length;
-        ctx.log(`cargurus ${(target.model ?? 'all').padEnd(12)} +${String(tiles.length).padStart(3)} tiles, ${vins} with VIN (pool ${out.size})`);
+        const added = out.size - before;
+        ctx.log(
+          `cargurus ${(target.model ?? 'all').padEnd(12)} p${page} +${String(tiles.length).padStart(3)} tiles, ` +
+          `${vins} with VIN, ${added} new (pool ${out.size})`,
+        );
+        // The pager re-serves its last page rather than emptying, so a page
+        // that contributes nothing is the only reliable end.
+        if (added === 0) break;
       } catch (e) {
-        ctx.log(`cargurus ${target.model ?? 'all'} FAILED: ${(e as Error).message.split('\n')[0]}`);
+        ctx.log(`cargurus ${target.model ?? 'all'} p${page} FAILED: ${(e as Error).message.split('\n')[0]}`);
+        break;
+      }
       }
     }
 

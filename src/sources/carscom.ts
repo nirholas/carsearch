@@ -54,7 +54,13 @@ const EXTRACT = (): VehicleDetails[] =>
     })
     .filter((x): x is VehicleDetails => x !== null && Boolean(x.listingId));
 
-function buildUrl(q: SearchQuery, model: string | undefined): string {
+/**
+ * A ceiling, not an expectation. The loop exits on a page that adds no cars;
+ * this only bounds a pager that answers forever.
+ */
+const MAX_PAGES = 20;
+
+function buildUrl(q: SearchQuery, model: string | undefined, page: number): string {
   const p = new URLSearchParams();
   p.set('stock_type', 'used');
   if (q.make) p.append('makes[]', q.make.toLowerCase());
@@ -68,6 +74,11 @@ function buildUrl(q: SearchQuery, model: string | undefined): string {
   p.set('zip', q.zip ?? '90001');
   p.set('page_size', '100');
   p.set('sort', 'mileage');
+  // Asking for a hundred per page is not the same as asking for every page.
+  // Without this the adapter saw the first 100 cars of a result set and every
+  // car past that was invisible, which reads as thin inventory rather than as
+  // a truncated read.
+  if (page > 1) p.set('page', String(page));
   return `https://www.cars.com/shopping/results/?${p.toString()}`;
 }
 
@@ -86,7 +97,9 @@ export const carscom: SourceAdapter = {
     const models = query.models?.length ? query.models : [undefined];
 
     for (const model of models) {
-      const url = buildUrl(query, model);
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const before = out.size;
+      const url = buildUrl(query, model, page);
       try {
         const rows = await evaluateInPage(url, EXTRACT, {
           waitMs: 6000,
@@ -94,6 +107,7 @@ export const carscom: SourceAdapter = {
           stableChecks: 2,
           maxPolls: 8,
         });
+        if (rows.length === 0) break;
 
         for (const v of rows) {
           const id = `carscom:${v.listingId}`;
@@ -146,9 +160,18 @@ export const carscom: SourceAdapter = {
             raw: { stockType: v.stockType, msrp: v.msrp, shipPrice: v.shipPrice },
           });
         }
-        ctx.log(`carscom ${(model ?? 'all').padEnd(14)} +${String(rows.length).padStart(3)} (pool ${out.size})`);
+        const added = out.size - before;
+        ctx.log(
+          `carscom ${(model ?? 'all').padEnd(14)} p${page} +${String(rows.length).padStart(3)} ` +
+          `read, ${added} new (pool ${out.size})`,
+        );
+        // The pager keeps answering past the last result rather than 404ing,
+        // so a page that contributes nothing is the only reliable end.
+        if (added === 0) break;
       } catch (e) {
-        ctx.log(`carscom ${model ?? 'all'} FAILED: ${(e as Error).message.split('\n')[0]}`);
+        ctx.log(`carscom ${model ?? 'all'} p${page} FAILED: ${(e as Error).message.split('\n')[0]}`);
+        break;
+      }
       }
     }
 
