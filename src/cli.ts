@@ -12,7 +12,20 @@ import { ask } from './nl/index.js';
 const program = new Command();
 program.name('carsearch').description('One search across every place a car is listed for sale.').version('0.1.0');
 
-const money = (n: number | null) => (n === null ? '     -' : `$${n.toLocaleString('en-US')}`);
+/**
+ * A price, with its currency when that is not dollars.
+ *
+ * Six of the wired sources quote in CAD, GBP, ARS or PKR, and a bare `$` on
+ * them reads as a US price: a PKR 74,500,000 Panamera printed as $74,500,000,
+ * which is a plausible-looking number for the wrong car by a factor of 260. The
+ * index deliberately stores the seller's own currency rather than converting,
+ * so the display is the only place that can say which one it is.
+ */
+const money = (n: number | null, currency?: string | null) => {
+  if (n === null) return '     -';
+  const amount = n.toLocaleString('en-US');
+  return !currency || currency === 'USD' ? `$${amount}` : `${currency} ${amount}`;
+};
 
 program
   .command('sources')
@@ -113,7 +126,7 @@ program
       const p = g.primary;
       const badge = g.sources.length > 1 ? ` [${g.sources.length} sites]` : '';
       console.log(
-        `${money(p.price).padStart(9)}  ${String(p.mileage ?? '-').padStart(7)} mi  ${(p.title || '').slice(0, 52).padEnd(52)} ${p.sourceId}${badge}`,
+        `${money(p.price, p.currency).padStart(13)}  ${String(p.mileage ?? '-').padStart(7)} mi  ${(p.title || '').slice(0, 52).padEnd(52)} ${p.sourceId}${badge}`,
       );
     }
     if (sold.length) {
@@ -229,7 +242,7 @@ program
     });
     console.log(`\n${rows.length} matches in the index`);
     for (const r of rows) {
-      console.log(`${money(r.price).padStart(9)}  ${String(r.mileage ?? '-').padStart(7)} mi  ${(r.title || '').slice(0, 50).padEnd(50)} ${r.sourceId}`);
+      console.log(`${money(r.price, r.currency).padStart(13)}  ${String(r.mileage ?? '-').padStart(7)} mi  ${(r.title || '').slice(0, 50).padEnd(50)} ${r.sourceId}`);
     }
     if (rows.length === 0) {
       console.log('The index only holds what has been crawled. Run `search` for this vehicle first.');
