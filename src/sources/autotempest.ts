@@ -158,11 +158,16 @@ export const autotempest: SourceAdapter = {
      * result quota, so six model queries returned around 250 unique cars where
      * a single broad make query returned 159 over identical filters.
      *
-     * Two sorts per model for the same reason: the result set is capped, and
-     * sorting by mileage and by price surfaces different tails of it.
+     * ONE sort, not two. This ran mileage and price on the belief that a capped
+     * result set would expose different tails to each. It does not: AutoTempest
+     * ignores the parameter. Measured on a live Macan search, price and mileage
+     * returned the same 172 listings in the same order, and every value tried
+     * (year, newest, date, price_desc, relevance) returned that same page. The
+     * second pass was doubling the crawl time of the source that reaches the
+     * most other sites, for nothing.
      */
     const models = query.models?.length ? query.models : [undefined];
-    const sorts = ['mileage', 'price'];
+    const sorts = ['price'];
 
     for (const model of models) {
       for (const sort of sorts) {
