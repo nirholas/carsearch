@@ -48,7 +48,18 @@ interface CarvanaVehicle {
   price?: CarvanaPrice | number;
   imageUrl?: string;
   isPurchasePending?: boolean;
+  /** The price before the most recent drop, with the date it changed. */
+  previousPrice?: number;
+  priceUpdateDate?: string;
+  transportCost?: number;
+  vdpSlug?: string;
 }
+
+/**
+ * A ceiling, not an expectation. The loop below exits when a page stops adding
+ * cars; this only bounds a pager that never stops answering.
+ */
+const MAX_PAGES = 40;
 
 const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -77,6 +88,21 @@ function mpg(v: CarvanaVehicle['milesPerGallon']): { city: number | null; highwa
   return { city: v?.city ?? null, highway: v?.highway ?? null };
 }
 
+/**
+ * The one historical price Carvana publishes per car.
+ *
+ * `previousPrice` is only meaningful with `priceUpdateDate`: without the date
+ * there is no point in time to attach it to, and a price with an invented
+ * timestamp is worse than no history at all.
+ */
+export function dropHistory(v: CarvanaVehicle): { observedAt: string; price: number }[] | null {
+  const price = Number(v.previousPrice);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const when = v.priceUpdateDate ? new Date(v.priceUpdateDate) : null;
+  if (!when || Number.isNaN(when.getTime())) return null;
+  return [{ observedAt: when.toISOString(), price }];
+}
+
 export const carvana: SourceAdapter = {
   source: getSource('carvana')!,
 
@@ -84,9 +110,18 @@ export const carvana: SourceAdapter = {
     const out = new Map<string, ListingDraft>();
 
     for (const target of urlsFor(query)) {
-      // Their pager is a query parameter; three pages is the practical depth
-      // before the same cars start repeating.
-      for (const page of [1, 2, 3]) {
+      /**
+       * Walk the pager until it stops yielding new cars.
+       *
+       * This used to stop at three pages, on a comment claiming the same cars
+       * repeat after that. They do not. Measured against a live Macan search,
+       * pages four, five and six each returned 23 vehicles that had not been
+       * seen, so the cap was discarding everything past the first 67 of 265.
+       * The stop condition is now the thing the cap was pretending to be: a
+       * page that adds nothing new.
+       */
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const before = out.size;
         const url = page === 1 ? target.url : `${target.url}?page=${page}`;
         try {
           const res = await fetchWithTls(url);
@@ -142,6 +177,14 @@ export const carvana: SourceAdapter = {
               mpgHighway: economy.highway,
               dealerName: 'Carvana',
               imageUrl: v.imageUrl ?? null,
+              /**
+               * Carvana states the price before its most recent drop and the
+               * date it changed, so a car that has been marked down arrives
+               * with one real historical point instead of starting flat. This
+               * is the same seeded history KBB supplies, from a different
+               * field, and it is testimony rather than our own observation.
+               */
+              priceHistory: dropHistory(v),
               raw: {
                 msrp: typeof v.price === 'object' ? v.price?.msrp : undefined,
                 // Their own comparison against a third-party valuation. Kept,
@@ -152,8 +195,14 @@ export const carvana: SourceAdapter = {
             });
             kept += 1;
           }
-          ctx.log(`carvana ${target.label.padEnd(20)} p${page} ${String(records.length).padStart(3)} records, ${kept} kept (pool ${out.size})`);
-          if (records.length < 20) break;
+          const added = out.size - before;
+          ctx.log(
+            `carvana ${target.label.padEnd(20)} p${page} ${String(records.length).padStart(3)} records, ` +
+            `${kept} kept, ${added} new (pool ${out.size})`,
+          );
+          // The pager repeats its last page forever rather than 404ing, so the
+          // only reliable end is a page that contributes nothing.
+          if (added === 0) break;
         } catch (e) {
           ctx.log(`carvana ${target.label} FAILED: ${(e as Error).message.split('\n')[0]}`);
           break;
