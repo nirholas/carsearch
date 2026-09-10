@@ -21,6 +21,7 @@ import { tesla } from './tesla.js';
 import { carscom } from './carscom.js';
 import { cargurus } from './cargurus.js';
 import { kbb } from './kbb.js';
+import { hemmings } from './hemmings.js';
 
 /**
  * Every adapter with a working implementation.
@@ -30,7 +31,7 @@ import { kbb } from './kbb.js';
  * actually wired. A source moves from the registry into here when its extractor
  * has been verified against live markup, never before.
  */
-export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket];
+export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, hemmings, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket];
 
 export const adapterById = new Map(ADAPTERS.map((a) => [a.source.id, a]));
 
