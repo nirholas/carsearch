@@ -32,3 +32,5 @@ data/kbb-index.log
 # it to know which makes exist, so a fresh clone needs it committed.
 data/*
 !data/vehicle-vocab.json
+data/full-index-done.txt
+data/full-index.log

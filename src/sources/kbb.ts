@@ -189,8 +189,19 @@ function url(query: SearchQuery, model: string | undefined, firstRecord: number)
   if (query.zip) params.set('zip', query.zip);
   // KBB reads radius 0 as nationwide, which is what an index wants by default.
   params.set('searchRadius', query.radius === 'any' || query.radius === undefined ? '0' : String(query.radius));
-  if (query.yearMin) params.set('yearMin', String(query.yearMin));
-  if (query.yearMax) params.set('yearMax', String(query.yearMax));
+  /**
+   * `startYear` and `endYear`, not `yearMin`/`yearMax`.
+   *
+   * The wrong names are not rejected, they are ignored, so the crawl looked
+   * like it was banding by year while every band returned the same newest slice.
+   * Measured on Porsche: an unfiltered query returns 125 cars spanning 2007 to
+   * 2026 and NOT ONE older than 2000, while `endYear=1999` returns 117 of which
+   * 105 are pre-2000. The result set is capped, so the cap alone decides what
+   * comes back, and what comes back is always the newest. Year banding is
+   * therefore the only route to old inventory, not a refinement of it.
+   */
+  if (query.yearMin) params.set('startYear', String(query.yearMin));
+  if (query.yearMax) params.set('endYear', String(query.yearMax));
   if (query.priceMax) params.set('priceMax', String(query.priceMax));
   if (query.mileageMax) params.set('maxMileage', String(query.mileageMax));
   return `https://www.kbb.com/cars-for-sale/used/${path}?${params}`;
