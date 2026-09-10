@@ -154,8 +154,12 @@ export function isImpossiblePriceForAge(
  */
 const NON_VEHICLE = /\b(display model|scale model|model car|poster|sign|neon|memorabilia|literature|brochure|manual|toy|pedal car|go.?kart|wheels?|tires?|engine|transmission|parts|seats?|badge|emblem|artwork|painting|print|clock|watch|helmet|jacket)\b/i;
 
-/** Mileage values that are display roundings rather than odometer readings. */
-const ROUND_MILEAGE = new Set([100, 500, 1000, 2000, 3000, 4000, 5000, 10000, 15000, 20000, 25000, 50000, 100000]);
+/**
+ * Very low mileages that are advertising copy rather than an odometer reading.
+ *
+ * Above these the rule is arithmetic, see isRoundedMileage.
+ */
+const ROUND_MILEAGE = new Set([100, 500]);
 
 /**
  * The year floor is 1900, not 1950.
@@ -347,9 +351,26 @@ export function parseMileage(text: string | null | undefined): number | null {
   return m?.[1] ? Number(m[1]) : null;
 }
 
+/**
+ * Whether a mileage is a display rounding rather than a reading off a dial.
+ *
+ * This used to be a hand-written set, and the set had holes: it listed 25,000
+ * and 50,000 but not 30,000, 40,000 or 60,000. That was survivable while the
+ * composite dedupe key also demanded the prices agree, and stopped being so the
+ * moment the key rested on mileage alone, because two different cars both
+ * advertised at "40,000 miles" would have merged into one.
+ *
+ * So it is a rule, not a list: any exact multiple of a thousand is treated as
+ * advertised rather than measured. That does misjudge the one real odometer in
+ * a thousand that lands on a round number, and the cost is only that the car
+ * falls through to the coarser key instead of the strong one. Being wrong in
+ * that direction loses a merge; being wrong in the other direction fuses two
+ * strangers' cars into a single listing.
+ */
 export function isRoundedMileage(miles: number | null): boolean {
   if (miles === null) return false;
-  return ROUND_MILEAGE.has(miles);
+  if (ROUND_MILEAGE.has(miles)) return true;
+  return miles > 0 && miles % 1000 === 0;
 }
 
 export function isNonVehicle(title: string): boolean {

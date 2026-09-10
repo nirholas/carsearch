@@ -127,3 +127,21 @@ test('the off-make guard ignores punctuation, not identity', () => {
   assert.ok(!sameMake('Ford', 'Ferrari'));
   assert.ok(!sameMake(undefined, 'Ford'));
 });
+
+test('a positive title brand is read; NO_SALVAGE_TITLE is still not "clean"', () => {
+  // Three live BMW i8s published SALVAGE_TITLE, and the cheapest was being
+  // shown as a car whose history nobody had published.
+  assert.equal(historyFacts(['SALVAGE_TITLE', 'ACCIDENTS_REPORTED']).titleStatus, 'salvage');
+  // A salvage brand being absent is a narrower claim than an unbranded title,
+  // and this source can be silent about every other brand in the enum.
+  assert.equal(historyFacts(['NO_SALVAGE_TITLE', 'NO_ACCIDENTS_REPORTED']).titleStatus, null);
+  assert.equal(historyFacts(undefined).titleStatus, null);
+});
+
+test('frame damage outranks a clean accident record', () => {
+  // Live: a 2015 i8 published both flags at once, priced $6,901 under KBB fair.
+  const both = historyFacts(['NO_SALVAGE_TITLE', 'FRAME_DAMAGE', 'NO_ACCIDENTS_REPORTED']);
+  assert.equal(both.accidentFree, false);
+  // Never zero: a damaged frame with no claim on file means nobody stated a count.
+  assert.equal(both.accidents, null);
+});

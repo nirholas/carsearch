@@ -91,13 +91,55 @@ export interface KbbRecord {
  * TitleStatus comment in facets.ts exists to prevent. `FREE_REPORT` is a
  * marketing badge, not a fact about the car.
  */
-export function historyFacts(flags: string[] | undefined): Pick<Listing, 'owners' | 'accidents' | 'accidentFree'> {
+export function historyFacts(
+  flags: string[] | undefined,
+): Pick<Listing, 'owners' | 'accidents' | 'accidentFree' | 'titleStatus'> {
   const has = (f: string) => Array.isArray(flags) && flags.includes(f);
+
+  /**
+   * Frame damage outranks the accident count, and the two really do arrive
+   * together. A live 2015 i8 published FRAME_DAMAGE and NO_ACCIDENTS_REPORTED
+   * on the same record, priced $6,901 under KBB's own fair value. Reading only
+   * the accident flag would have presented that car as accident-free, which is
+   * the one lie this field exists to prevent. A car with a damaged frame is not
+   * accident-free whatever the report says about claims, and the count is set
+   * to null rather than zero because nobody stated one.
+   */
+  const frameDamage = has('FRAME_DAMAGE');
+  const accidentsReported = has('ACCIDENTS_REPORTED') || frameDamage;
+  const accidentFree = accidentsReported ? false : has('NO_ACCIDENTS_REPORTED') ? true : null;
+
   return {
     owners: has('ONE_OWNER') ? 1 : null,
-    accidents: has('NO_ACCIDENTS_REPORTED') ? 0 : null,
-    accidentFree: has('NO_ACCIDENTS_REPORTED') ? true : has('ACCIDENTS_REPORTED') ? false : null,
+    accidents: accidentFree === true ? 0 : null,
+    accidentFree,
+    titleStatus: titleFrom(flags),
   };
+}
+
+/**
+ * The title brand a vehicle history preview states, or null.
+ *
+ * Only a positive brand is recorded. `NO_SALVAGE_TITLE` is deliberately NOT
+ * read as `clean`: it says a salvage brand is absent, which is a narrower claim
+ * than an unbranded title, and every other brand in TITLE_STATUSES is one this
+ * source can be silent about. Answering "clean" from it would be the exact
+ * conflation of "did not say" with "said clean" that the enum's own comment
+ * warns about.
+ *
+ * Reading the positive brands still matters enormously: three live BMW i8s
+ * published SALVAGE_TITLE, and the cheapest was being shown as a car whose
+ * history nobody had published.
+ */
+export function titleFrom(flags: string[] | undefined): Listing['titleStatus'] {
+  const has = (f: string) => Array.isArray(flags) && flags.includes(f);
+  if (has('SALVAGE_TITLE')) return 'salvage';
+  if (has('REBUILT_TITLE')) return 'rebuilt';
+  if (has('FLOOD_WATER_DAMAGE')) return 'flood';
+  if (has('LEMON_TITLE') || has('MANUFACTURER_BUYBACK')) return 'lemon';
+  if (has('JUNK_TITLE')) return 'junk';
+  if (has('THEFT_RECOVERY')) return 'theft-recovery';
+  return null;
 }
 
 /** "2,960" -> 2960. Absent and unparseable both mean unknown, never zero. */
