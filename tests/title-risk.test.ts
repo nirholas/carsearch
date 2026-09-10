@@ -14,6 +14,7 @@ const ask = (price: number, over: Partial<Parameters<typeof titleRisk>[0]> = {})
   titleStatus: null,
   accidents: null,
   accidentFree: null,
+  mileage: null,
   ...over,
 });
 
@@ -95,4 +96,39 @@ test('a car cheaper than a title report produces no opinion', () => {
   assert.match(r.reason, /costs more than the risk/);
   // The same ratio on real money still fires.
   assert.equal(titleRisk(ask(55_000), COHORT).suspect, true);
+});
+
+test('a high odometer explains the price and ends the enquiry', () => {
+  // A 2013 FR-S at $5,294 was flagged 52% under its cohort while showing
+  // 158,576 miles against a median near 60,000. Nothing is unexplained there.
+  const miles = [40_000, 50_000, 55_000, 58_000, 60_000, 62_000, 70_000, 80_000];
+  const worn = titleRisk({ ...ask(55_000), mileage: 158_576 }, COHORT, miles);
+  assert.equal(worn.suspect, false);
+  assert.match(worn.reason, /explains the price/);
+
+  // The same car at cohort-typical mileage is still unexplained, and still fires.
+  assert.equal(titleRisk({ ...ask(55_000), mileage: 60_000 }, COHORT, miles).suspect, true);
+});
+
+test('an absent odometer is not an explanation', () => {
+  // Most craigslist rows state no mileage. Silence must not silence the flag,
+  // or the least-documented listings become the least scrutinised.
+  const miles = [40_000, 50_000, 55_000, 58_000, 60_000, 62_000, 70_000, 80_000];
+  assert.equal(titleRisk({ ...ask(55_000), mileage: null }, COHORT, miles).suspect, true);
+});
+
+test('mileage can only silence a flag, never create one', () => {
+  const miles = [200_000, 200_000, 200_000, 200_000, 200_000, 200_000, 200_000, 200_000];
+  // A fairly-priced car stays fair no matter what the cohort's odometers say.
+  assert.equal(titleRisk({ ...ask(120_000), mileage: 10 }, COHORT, miles).suspect, false);
+});
+
+test('a proportional mileage gap alone does not explain a low price', () => {
+  // The 2024 Taycan was silenced at 15,747 miles against a cohort median near
+  // 10,000: 1.5x of a small number is still small, and 5,747 extra miles on a
+  // two-year-old car explains nothing about a 45% discount.
+  const nearlyNew = [6_000, 8_000, 9_000, 10_000, 10_000, 11_000, 14_000, 18_000];
+  assert.equal(titleRisk({ ...ask(55_000), mileage: 15_747 }, COHORT, nearlyNew).suspect, true);
+  // A genuinely worn car in the same cohort is still explained.
+  assert.equal(titleRisk({ ...ask(55_000), mileage: 140_000 }, COHORT, nearlyNew).suspect, false);
 });

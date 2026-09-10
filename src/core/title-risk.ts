@@ -81,6 +81,31 @@ export const MIN_COHORT = 8;
  */
 export const MIN_PRICE = 5_000;
 
+/**
+ * Mileage this far above the cohort explains the discount by itself.
+ *
+ * Found on a 52,395-listing run: a 2013 Scion FR-S at $5,294 was flagged 52%
+ * under its cohort while showing 158,576 miles against a cohort median near
+ * 60,000. Nothing about that car is unexplained; it is simply worn out. The
+ * flag means "the price has no explanation in anything we know", so a mileage
+ * we DO know and that does explain it has to end the enquiry.
+ *
+ * Only mileage we actually have counts. A listing that states none stays
+ * eligible, because an absent odometer is not an explanation.
+ */
+export const MILEAGE_EXPLAINS = 1.5;
+
+/**
+ * ...and by this many miles in absolute terms.
+ *
+ * A ratio alone is wrong at the low end. The 2024 Taycan this rule exists to
+ * keep was silenced at 15,747 miles against a cohort median near 10,000,
+ * because 1.5x of a small number is still a small number and 5,747 extra miles
+ * on a two-year-old car explains nothing. Both conditions must hold, so the
+ * guard only fires on a genuinely worn car rather than on ordinary variation.
+ */
+export const MILEAGE_EXPLAINS_BY = 25_000;
+
 export interface TitleRisk {
   /** True only when the price is unexplained by anything the index knows. */
   suspect: boolean;
@@ -99,10 +124,14 @@ export function firstQuartile(values: number[]): number | null {
  * `cohortPrices` should be asking prices for the same model in a comparable
  * year band, including this listing. The caller owns that definition because
  * cohorting is a product decision, not an arithmetic one.
+ *
+ * `cohortMileages` is optional and only ever silences the flag. Passing it
+ * cannot create a suspicion that the prices alone did not already support.
  */
 export function titleRisk(
-  listing: Pick<Listing, 'price' | 'priceKind' | 'titleStatus' | 'accidents' | 'accidentFree'>,
+  listing: Pick<Listing, 'price' | 'priceKind' | 'titleStatus' | 'accidents' | 'accidentFree' | 'mileage'>,
   cohortPrices: number[],
+  cohortMileages: (number | null)[] = [],
 ): TitleRisk {
   const none = (reason: string): TitleRisk => ({ suspect: false, ratio: null, reason });
 
@@ -130,6 +159,19 @@ export function titleRisk(
 
   const floor = firstQuartile(priced)!;
   if (floor <= 0) return none('cohort has no usable price floor');
+
+  // A high odometer is a complete explanation for a low price, so check it
+  // before concluding the price is unexplained.
+  const miles = cohortMileages.filter((m): m is number => typeof m === 'number' && m > 0).sort((a, b) => a - b);
+  if (listing.mileage && miles.length >= MIN_COHORT) {
+    const typical = miles[Math.floor(miles.length / 2)]!;
+    if (listing.mileage > typical * MILEAGE_EXPLAINS && listing.mileage - typical >= MILEAGE_EXPLAINS_BY) {
+      return none(
+        `${listing.mileage.toLocaleString('en-US')} miles against a cohort median of ` +
+        `${typical.toLocaleString('en-US')}, which explains the price`,
+      );
+    }
+  }
 
   const ratio = listing.price / floor;
   if (ratio >= FLOOR_RATIO) {

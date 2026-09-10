@@ -105,15 +105,26 @@ function titleRiskAll(rows: Listing[]) {
     `${l.make ?? ''}|${l.model ?? ''}|${l.trim ?? '~base'}|${Math.floor((l.year ?? 0) / 2) * 2}`.toLowerCase();
 
   const prices = new Map<string, number[]>();
+  const mileages = new Map<string, (number | null)[]>();
   for (const l of rows) {
     if (l.price === null || l.priceKind !== 'ask') continue;
     const key = cohortKey(l);
     let bucket = prices.get(key);
     if (!bucket) prices.set(key, (bucket = []));
     bucket.push(l.price);
+    // Carried alongside so a worn-out car is not mistaken for an unexplained
+    // one. This can only silence a flag, never raise one.
+    let odo = mileages.get(key);
+    if (!odo) mileages.set(key, (odo = []));
+    odo.push(l.mileage);
   }
 
-  return new Map(rows.map((l) => [l.id, titleRisk(l, prices.get(cohortKey(l)) ?? [])] as const));
+  return new Map(
+    rows.map((l) => {
+      const key = cohortKey(l);
+      return [l.id, titleRisk(l, prices.get(key) ?? [], mileages.get(key) ?? [])] as const;
+    }),
+  );
 }
 
 /**
