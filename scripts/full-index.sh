@@ -35,6 +35,13 @@ BANDS=${BANDS:-"1900:1969
 
 mkdir -p "$(dirname "$STATE")"
 touch "$STATE"
+
+# Derived, not committed: data/ is gitignored, and a checked-in copy would rot
+# the moment a marque is added to the MAKES table it comes from.
+if [ ! -s "$MAKES_FILE" ]; then
+  echo "deriving makes from src/core/normalize.ts"
+  npx tsx scripts/list-makes.mts > "$MAKES_FILE" || { echo "could not derive makes"; exit 1; }
+fi
 [ -s "$MAKES_FILE" ] || { echo "no makes file at $MAKES_FILE"; exit 1; }
 
 total=$(( $(grep -c . "$MAKES_FILE") * $(echo "$BANDS" | grep -c .) ))
