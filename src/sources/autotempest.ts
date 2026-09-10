@@ -31,6 +31,62 @@ export const BACKEND_SITE_CODES: Record<string, string> = {
   cs: 'carsoup',
 };
 
+/**
+ * Destination hosts, mapped to our own source ids.
+ *
+ * The tile's `data-backend-sitecode` is AutoTempest's private taxonomy and it
+ * does not always agree with where the link goes: 49 of 115 rows attributed to
+ * CarMax by the `cm` code linked to cars.com, which put one car in the index
+ * twice at two prices and sent a buyer to a CarMax page that did not exist.
+ * The href cannot lie about where the car lives, so it is the authority and the
+ * code is only a fallback for a host nobody has mapped yet.
+ */
+export const ORIGIN_HOSTS: Record<string, string> = {
+  'carvana.com': 'carvana',
+  'carmax.com': 'carmax',
+  'cargurus.com': 'cargurus',
+  'truecar.com': 'truecar',
+  'ebay.com': 'ebaymotors',
+  'carsandbids.com': 'carsandbids',
+  'privateauto.com': 'privateauto',
+  'cars.com': 'carscom',
+  'autotrader.com': 'autotrader',
+  'hemmings.com': 'hemmings',
+  'carfax.com': 'carfax',
+  'carsdirect.com': 'carsdirect',
+  'carsoup.com': 'carsoup',
+  'craigslist.org': 'craigslist',
+  'bringatrailer.com': 'bringatrailer',
+  'autotempest.com': 'autotempest',
+};
+
+/**
+ * The source id a result belongs to.
+ *
+ * Host first, tile code second, and when neither is known the code is kept
+ * namespaced (`autotempest:xyz`) so an unmapped origin is visible in the index
+ * rather than silently credited to the aggregator.
+ */
+export function attribute(url: string | null, code: string | null): string {
+  const host = hostOf(url);
+  if (host) {
+    const known = ORIGIN_HOSTS[host];
+    if (known) return known;
+  }
+  if (code) return BACKEND_SITE_CODES[code] ?? `autotempest:${code}`;
+  return 'autotempest';
+}
+
+/** Registrable host of a URL, without `www.`, or null when it will not parse. */
+export function hostOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 interface RawRow {
   title: string;
   price: number | null;
@@ -120,7 +176,7 @@ export const autotempest: SourceAdapter = {
 
           for (const r of rows) {
             if (!r.id) continue;
-            const originSourceId = r.code ? (BACKEND_SITE_CODES[r.code] ?? `autotempest:${r.code}`) : 'autotempest';
+            const originSourceId = attribute(r.url, r.code);
             const id = `${originSourceId}:${r.id}`;
             if (out.has(id)) continue;
             out.set(id, {

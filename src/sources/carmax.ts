@@ -13,7 +13,7 @@ import { isRoundedMileage, isValidVin } from '../core/normalize.js';
  * fuzzy matching is measured against.
  */
 
-interface LdCar {
+export interface LdCar {
   '@type': string;
   name?: string;
   brand?: { name?: string };
@@ -41,6 +41,23 @@ const EXTRACT = (): LdCar[] =>
     .flatMap((x) => (Array.isArray(x) ? x : [x]))
     .filter((x): x is LdCar => Boolean(x) && x['@type'] === 'Car');
 
+/**
+ * Whether a JSON-LD record is the model that was asked for.
+ *
+ * Compared on alphanumerics only, so `Macan S` matches a query for `macan`
+ * while `i3` never matches `i8`. The record's own `model` is authoritative;
+ * when it is absent the name is used, because a record with no model at all
+ * must not be assumed to be the one requested.
+ */
+export function isModel(car: LdCar, wanted: string): boolean {
+  const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const want = key(wanted);
+  const field = car.model ? key(car.model) : null;
+  if (field) return field === want || field.startsWith(want);
+  const name = key(car.name ?? '');
+  return name.includes(want);
+}
+
 function slug(make: string, model: string): string {
   return `${make}/${model}`.toLowerCase().replace(/\s+/g, '-');
 }
@@ -65,11 +82,20 @@ export const carmax: SourceAdapter = {
         const cars = await evaluateInPage(url, EXTRACT, { waitMs: 5000, scroll: true });
 
         /**
-         * Filter on brand. The page also embeds Car blocks for "similar
-         * vehicles", which is how a 2018 Mercedes-Benz SLC300 got into a
-         * Porsche dataset and sat there looking entirely plausible.
+         * Filter on brand AND on the model that was asked for.
+         *
+         * Brand alone is not enough. A model slug CarMax has no stock for
+         * still answers 200, with the make's general inventory: a live search
+         * for `bmw/i8` returned 44 cars, every one of them an X3, X5, Z4 or
+         * 330i, and each was plausible enough to survive every downstream
+         * check because each really is a BMW. The similar-vehicles blocks that
+         * put a 2018 Mercedes-Benz SLC300 into a Porsche dataset are the same
+         * failure one step further out.
          */
-        const mine = cars.filter((c) => (c.brand?.name ?? '').toLowerCase() === make.toLowerCase());
+        const mine = cars.filter((c) => {
+          if ((c.brand?.name ?? '').toLowerCase() !== make.toLowerCase()) return false;
+          return model ? isModel(c, model) : true;
+        });
 
         for (const c of mine) {
           const vin = c.vehicleIdentificationNumber ?? null;
