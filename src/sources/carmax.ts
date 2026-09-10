@@ -1,65 +1,106 @@
-import type { Listing, SearchQuery, SourceAdapter } from '../core/types.js';
+import type { SourceAdapter } from '../core/types.js';
 import { makeListing, type ListingDraft } from '../core/listing.js';
 import { getSource } from './registry.js';
-import { evaluateInPage } from '../transport/browser.js';
+import { fetchWithTls } from '../transport/tls.js';
 import { isRoundedMileage, isValidVin } from '../core/normalize.js';
+import { parseTransmission, parseDrivetrain } from '../core/facets.js';
 
 /**
- * CarMax: the best free structured data of any source tested.
+ * CarMax, read through its own search API rather than its HTML.
  *
- * It ships clean JSON-LD, one `@type: Car` block per vehicle, INCLUDING the
- * VIN. That makes it the only source in the registry that dedupes exactly
- * rather than by composite key, and it is the anchor every other source's
- * fuzzy matching is measured against.
+ * This adapter used to load one rendered page and scrape its JSON-LD. That
+ * markup carries only the cars on the first page, and CarMax paginates, so a
+ * nationwide Macan search returned 44 of the 155 cars they actually had. The
+ * 111 it missed were disproportionately the CHEAP ones, because the default
+ * sort buries older high-mileage inventory: the adapter reported a floor of
+ * $33,998 for a Macan S when the real floor was $25,998. A source that is
+ * silently 72% short looks exactly like a source with thin inventory.
+ *
+ * The API behind the same page returns everything, a hundred cars per request,
+ * and carries more per car than the JSON-LD did: VIN, stock number, trim,
+ * series, drivetrain, colours, prior use and a real per-vehicle URL.
+ *
+ * THE PARAMETER FORM MATTERS, and the wrong one fails silently.
+ *
+ *   ?uri=/cars/porsche/macan     totalCount 155, all of them Porsche Macans
+ *   ?make=Porsche&model=Macan    totalCount 58805, first result a Ford Mustang
+ *
+ * The second answers 200 with a full page of items and simply ignores the
+ * filter, which is the same failure as a rotted make slug and as Autotrader's
+ * 200-with-a-captcha. Never move this to the make/model form.
  */
 
-export interface LdCar {
-  '@type': string;
-  name?: string;
-  brand?: { name?: string };
+const API = 'https://www.carmax.com/cars/api/search/run';
+
+/** Cars per request. The endpoint caps silently above this. */
+const TAKE = 100;
+
+/**
+ * Stop after this many pages of one query.
+ *
+ * A guard against a filter that stops being honoured upstream and turns a model
+ * search into a walk of all 58,000 cars, not a limit we expect to reach: the
+ * largest legitimate model catalogue here runs to a few hundred.
+ */
+const MAX_PAGES = 30;
+
+export interface CarmaxItem {
+  stockNumber?: string | number;
+  vin?: string;
+  year?: number;
+  make?: string;
   model?: string;
-  vehicleConfiguration?: string;
-  vehicleModelDate?: string | number;
-  vehicleIdentificationNumber?: string;
-  mileageFromOdometer?: { value?: string | number };
-  offers?: { price?: string | number };
-  color?: string;
-  bodyType?: string;
+  trim?: string | null;
+  series?: string | null;
+  basePrice?: number;
+  mileage?: number;
+  storeCity?: string;
+  stateAbbreviation?: string;
+  exteriorColor?: string;
+  interiorColor?: string;
   fuelType?: string;
-  image?: string | string[];
+  transmission?: string;
+  driveTrain?: string;
+  cylinders?: number | string;
+  mpgCity?: number;
+  mpgHighway?: number;
+  body?: string;
+  heroImageUrl?: string;
+  priorUseDescriptions?: string[];
 }
 
-const EXTRACT = (): LdCar[] =>
-  [...document.querySelectorAll('script[type="application/ld+json"]')]
-    .map((s) => {
-      try {
-        return JSON.parse(s.textContent ?? 'null');
-      } catch {
-        return null;
-      }
-    })
-    .flatMap((x) => (Array.isArray(x) ? x : [x]))
-    .filter((x): x is LdCar => Boolean(x) && x['@type'] === 'Car');
+interface CarmaxPage {
+  items?: CarmaxItem[];
+  totalCount?: number;
+}
+
+const slug = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 
 /**
- * Whether a JSON-LD record is the model that was asked for.
+ * Whether a returned car is the one that was asked for.
  *
- * Compared on alphanumerics only, so `Macan S` matches a query for `macan`
- * while `i3` never matches `i8`. The record's own `model` is authoritative;
- * when it is absent the name is used, because a record with no model at all
- * must not be assumed to be the one requested.
+ * Kept from the previous implementation because the reason has not changed: a
+ * model slug CarMax has no stock for still answers 200 with the make's general
+ * inventory, and every one of those cars is plausible enough to survive the
+ * downstream checks. Compared on alphanumerics, so "Macan S" matches a query
+ * for "macan" while "i3" never matches "i8".
  */
-export function isModel(car: LdCar, wanted: string): boolean {
+export function isWanted(item: CarmaxItem, make: string, model: string | null): boolean {
   const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const want = key(wanted);
-  const field = car.model ? key(car.model) : null;
-  if (field) return field === want || field.startsWith(want);
-  const name = key(car.name ?? '');
-  return name.includes(want);
+  if (key(item.make ?? '') !== key(make)) return false;
+  if (!model) return true;
+  const field = key(item.model ?? '');
+  const want = key(model);
+  return field === want || field.startsWith(want);
 }
 
-function slug(make: string, model: string): string {
-  return `${make}/${model}`.toLowerCase().replace(/\s+/g, '-');
+/** CarMax states prior use. "Fleet" is real history; it is NOT a title brand. */
+export function normalizeUse(descriptions?: string[]): 'fleet' | 'rental' | 'personal' | null {
+  if (!descriptions?.length) return null;
+  const blob = descriptions.join(' ').toLowerCase();
+  if (blob.includes('rental')) return 'rental';
+  if (blob.includes('fleet') || blob.includes('lease')) return 'fleet';
+  return 'personal';
 }
 
 export const carmax: SourceAdapter = {
@@ -73,70 +114,98 @@ export const carmax: SourceAdapter = {
       ctx.log('carmax: needs a make, skipping');
       return [];
     }
-    const models = query.models?.length ? query.models : [''];
+    const models = query.models?.length ? query.models : [null];
 
     for (const model of models) {
-      const path = model ? slug(make, model) : make.toLowerCase();
-      const url = `https://www.carmax.com/cars/${path}`;
-      try {
-        const cars = await evaluateInPage(url, EXTRACT, { waitMs: 5000, scroll: true });
+      const uri = model ? `/cars/${slug(make)}/${slug(model)}` : `/cars/${slug(make)}`;
+      let total: number | null = null;
+      let kept = 0;
 
-        /**
-         * Filter on brand AND on the model that was asked for.
-         *
-         * Brand alone is not enough. A model slug CarMax has no stock for
-         * still answers 200, with the make's general inventory: a live search
-         * for `bmw/i8` returned 44 cars, every one of them an X3, X5, Z4 or
-         * 330i, and each was plausible enough to survive every downstream
-         * check because each really is a BMW. The similar-vehicles blocks that
-         * put a 2018 Mercedes-Benz SLC300 into a Porsche dataset are the same
-         * failure one step further out.
-         */
-        const mine = cars.filter((c) => {
-          if ((c.brand?.name ?? '').toLowerCase() !== make.toLowerCase()) return false;
-          return model ? isModel(c, model) : true;
-        });
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        const skip = page * TAKE;
+        if (total !== null && skip >= total) break;
 
-        for (const c of mine) {
-          const vin = c.vehicleIdentificationNumber ?? null;
-          const price = c.offers?.price !== undefined ? Number(c.offers.price) : null;
-          const miles = c.mileageFromOdometer?.value !== undefined ? Number(c.mileageFromOdometer.value) : null;
-          const id = `carmax:${vin ?? `${c.name}-${price}-${miles}`}`;
+        const url = `${API}?uri=${encodeURIComponent(uri)}&skip=${skip}&take=${TAKE}`;
+        let body: CarmaxPage;
+        try {
+          const res = await fetchWithTls(url, { headers: { accept: 'application/json' } });
+          if (res.status !== 200) {
+            ctx.log(`carmax ${uri} p${page}: HTTP ${res.status}`);
+            break;
+          }
+          body = JSON.parse(res.body) as CarmaxPage;
+        } catch (e) {
+          ctx.log(`carmax ${uri} p${page} FAILED: ${(e as Error).message.split('\n')[0]}`);
+          break;
+        }
+
+        if (total === null) total = body.totalCount ?? null;
+        const items = body.items ?? [];
+        if (!items.length) break;
+
+        const mine = items.filter((i) => isWanted(i, make, model));
+        for (const i of mine) {
+          const vin = i.vin ?? null;
+          const stock = i.stockNumber != null ? String(i.stockNumber) : null;
+          const id = `carmax:${vin ?? stock ?? `${i.year}-${i.model}-${i.basePrice}`}`;
           if (out.has(id)) continue;
+
+          const price = Number(i.basePrice);
+          const miles = Number(i.mileage);
+          const place = [i.storeCity, i.stateAbbreviation].filter(Boolean).join(', ');
 
           out.set(id, {
             id,
             sourceId: 'carmax',
-            sourceListingId: vin,
-            // CarMax exposes no stable per-car URL in the listing markup, so
-            // link by VIN search instead of fabricating one.
-            url: isValidVin(vin) ? `https://www.carmax.com/cars?search=${vin}` : url,
-            title: c.name ?? '',
-            year: c.vehicleModelDate !== undefined ? Number(c.vehicleModelDate) : null,
-            make: c.brand?.name ?? make,
-            model: c.model ?? (model || null),
-            trim: c.vehicleConfiguration ?? null,
-            series: null,
-            vin: isValidVin(vin) ? vin.toUpperCase() : null,
+            sourceListingId: stock ?? vin,
+            // A real per-car page, which the JSON-LD never exposed. The old
+            // adapter linked to a VIN search because it had nothing better.
+            url: stock ? `https://www.carmax.com/car/${stock}` : `https://www.carmax.com/cars?search=${vin ?? ''}`,
+            title: [i.year, i.make, i.model, i.trim].filter(Boolean).join(' '),
+            year: Number.isFinite(i.year) ? Number(i.year) : null,
+            make: i.make ?? make,
+            model: i.model ?? model,
+            trim: i.trim || null,
+            series: i.series || null,
+            vin: isValidVin(vin) ? vin!.toUpperCase() : null,
             price: Number.isFinite(price) ? price : null,
             priceKind: 'ask',
             currency: 'USD',
             mileage: Number.isFinite(miles) ? miles : null,
-            mileageIsRounded: isRoundedMileage(miles),
-            location: 'nationwide (CarMax ships)',
+            mileageIsRounded: isRoundedMileage(Number.isFinite(miles) ? miles : null),
+            // Any CarMax car transfers to any store, so the city is where it
+            // sits rather than where a buyer has to go.
+            location: place ? `${place} (CarMax ships)` : 'nationwide (CarMax ships)',
             sellerType: 'dealer',
-            bodyType: c.bodyType ?? null,
-            exteriorColor: c.color ?? null,
-            fuelType: c.fuelType ?? null,
+            bodyType: i.body ?? null,
+            exteriorColor: i.exteriorColor ?? null,
+            interiorColor: i.interiorColor ?? null,
+            fuelType: i.fuelType ?? null,
+            transmission: parseTransmission(i.transmission),
+            drivetrain: parseDrivetrain(i.driveTrain),
+            mpgCity: Number.isFinite(Number(i.mpgCity)) ? Number(i.mpgCity) : null,
+            mpgHighway: Number.isFinite(Number(i.mpgHighway)) ? Number(i.mpgHighway) : null,
+            cylinders: Number.isFinite(Number(i.cylinders)) ? Number(i.cylinders) : null,
+            usage: normalizeUse(i.priorUseDescriptions),
             eventDate: null,
-            imageUrl: Array.isArray(c.image) ? (c.image[0] ?? null) : (c.image ?? null),
+            imageUrl: i.heroImageUrl ?? null,
             firstSeen: now,
             lastSeen: now,
           });
+          kept += 1;
         }
-        ctx.log(`carmax ${path.padEnd(22)} +${String(mine.length).padStart(3)} of ${cars.length} ld+json blocks (pool ${out.size})`);
-      } catch (e) {
-        ctx.log(`carmax ${path} FAILED: ${(e as Error).message.split('\n')[0]}`);
+
+        ctx.log(
+          `carmax ${uri.padEnd(26)} p${page} +${String(mine.length).padStart(3)} of ${items.length} ` +
+          `(pool ${out.size} of ${total ?? '?'})`,
+        );
+        if (items.length < TAKE) break;
+      }
+
+      // Answered, and nothing matched: the slug is wrong or the model is out of
+      // stock. Say which, rather than reporting an indistinguishable silence.
+      if (total !== null && kept === 0) {
+        ctx.log(`carmax ${uri}: ${total} cars returned, none on-model`);
       }
     }
 
