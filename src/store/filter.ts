@@ -90,6 +90,77 @@ export function buildFacetPredicates(
  * Written this way so a search is a link a person can read, edit and share,
  * which a base64 blob or a POST body would not be.
  */
+/**
+ * Query keys that are not a facet, not reserved, and not understood.
+ *
+ * `parseFacetQuery` skips anything it does not recognise, which is right for it
+ * and disastrous on its own: a search for `models=Macan` (the parameter is
+ * `model`) had the filter dropped in silence and answered with Panameras,
+ * Cayennes and a 911, every one of them presented as a Macan. A filter that
+ * vanishes is worse than one that fails, because the caller believes the
+ * result.
+ *
+ * Endpoints call this and refuse the request rather than answering the wrong
+ * question.
+ */
+export function unknownQueryKeys(
+  query: Record<string, string>,
+  reserved: readonly string[] = [],
+  extra: readonly string[] = [],
+): string[] {
+  const allowed = new Set<string>([...reserved, ...extra]);
+  const out: string[] = [];
+  for (const [rawKey, rawValue] of Object.entries(query)) {
+    if (rawValue === undefined || rawValue === '') continue;
+    const [key = '', modifier] = rawKey.split('.');
+    if (allowed.has(key)) continue;
+    if (FACETS_BY_KEY.has(key)) continue;
+    if (modifier && !['min', 'max', 'unknown'].includes(modifier)) {
+      out.push(rawKey);
+      continue;
+    }
+    out.push(rawKey);
+  }
+  return out;
+}
+
+/**
+ * The closest known key to a mistyped one, or null when nothing is close.
+ *
+ * Levenshtein against every accepted key, so `models` suggests `model` and a
+ * genuine typo is not answered with an unrelated facet.
+ */
+export function suggestKey(
+  key: string,
+  reserved: readonly string[] = [],
+  extra: readonly string[] = [],
+): string | null {
+  const base = key.split('.')[0] ?? key;
+  const candidates = [...new Set([...reserved, ...extra, ...FACETS_BY_KEY.keys()])];
+  let best: string | null = null;
+  let bestScore = Infinity;
+  for (const c of candidates) {
+    const d = distance(base.toLowerCase(), c.toLowerCase());
+    if (d < bestScore) { bestScore = d; best = c; }
+  }
+  // Two edits on a short key is already a different word.
+  const limit = base.length <= 4 ? 1 : 2;
+  return best !== null && bestScore <= limit ? best : null;
+}
+
+function distance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const cur = new Array<number>(b.length + 1);
+  for (let i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = cur[j]!;
+  }
+  return prev[b.length]!;
+}
+
 export function parseFacetQuery(
   query: Record<string, string>,
   /**

@@ -64,9 +64,35 @@ function completeness(l: Listing): number {
   return fields.filter((f) => f !== null && f !== undefined && f !== '').length;
 }
 
+/**
+ * Points every weaker key a listing answers to at the group it landed in.
+ *
+ * Only ever adds an alias that is not already claimed, so the first (strongest)
+ * group to claim a key keeps it.
+ */
+function registerAliases(l: Listing, group: string, aliases: Map<string, string>): void {
+  for (const k of [compositeKey(l), weakKey(l)]) {
+    if (k && k !== group && !aliases.has(k)) aliases.set(k, group);
+  }
+}
+
 export function dedupe(listings: Listing[]): DedupeGroup[] {
   const groups = new Map<string, { members: Listing[]; confidence: MatchConfidence }>();
   const assigned = new Set<string>();
+
+  /**
+   * Every key a listing answers to, so a weaker pass can still find a group a
+   * stronger pass already made.
+   *
+   * Without this, matching by VIN first REMOVED the listing from every later
+   * pass, and a VIN-bearing record could never absorb its own VIN-less
+   * duplicate. A 2019 Macan at $27,998 with 53,929 miles was in the index twice,
+   * once from CarMax carrying WP1AA2A52KLB01337 and once from CarGurus carrying
+   * no VIN at all, and it reached a real buyer's results as two cars. Identical
+   * year, model, price and odometer; only the field one source withholds
+   * differed.
+   */
+  const aliases = new Map<string, string>();
 
   const pass = (keyFn: (l: Listing) => string | null, confidence: MatchConfidence) => {
     for (const l of listings) {
@@ -74,9 +100,13 @@ export function dedupe(listings: Listing[]): DedupeGroup[] {
       const k = keyFn(l);
       if (!k) continue;
       assigned.add(l.id);
-      const g = groups.get(k);
+      // A group this listing already belongs to under a stronger key wins, so
+      // the merge keeps that group's confidence rather than being demoted.
+      const target = aliases.get(k) ?? k;
+      const g = groups.get(target);
       if (g) g.members.push(l);
       else groups.set(k, { members: [l], confidence });
+      registerAliases(l, aliases.get(k) ?? k, aliases);
     }
   };
 

@@ -14,7 +14,7 @@ import { ask } from '../nl/index.js';
 import { loadVocabulary } from '../nl/vocabulary.js';
 import { rank, parseSortSpec, PRESETS, DEFAULT_SORT } from '../core/rank.js';
 import { isRated } from '../core/rating.js';
-import { parseFacetQuery } from '../store/filter.js';
+import { parseFacetQuery, unknownQueryKeys, suggestKey } from '../store/filter.js';
 import { FACETS, FACETS_BY_KEY, GROUP_LABELS } from '../core/facets.js';
 import { analyzeMarket, valueAtMileage, forecastOwnership } from '../analytics/market.js';
 import type { Listing } from '../core/types.js';
@@ -142,6 +142,47 @@ const RANK_POOL = 3000;
  * what the caller meant.
  */
 const SEARCH_RESERVED = ['make', 'model', 'year', 'price', 'mileage', 'bodyType', 'fuelType', 'currency'] as const;
+
+/**
+ * Non-facet parameters each endpoint genuinely accepts. Anything outside these
+ * and the facet registry is a mistake, and is answered as one.
+ */
+const SEARCH_CONTROLS = [
+  'limit', 'offset', 'sort', 'q', 'priceKinds', 'sources',
+  'yearMin', 'yearMax', 'priceMin', 'priceMax', 'mileageMax',
+] as const;
+const FACETS_CONTROLS = ['priceKinds'] as const;
+const MARKET_CONTROLS = ['yearMin', 'yearMax'] as const;
+
+/**
+ * Refuses a request carrying a parameter nobody will read.
+ *
+ * parseFacetQuery skips what it does not recognise, which is right for it and
+ * dangerous alone: a search for `models=Macan` (the parameter is `model`) had
+ * the filter dropped in silence and answered with Panameras, Cayennes and a
+ * 911, each presented as a Macan. A filter that vanishes is worse than one that
+ * fails, because the caller believes the answer.
+ *
+ * Returns a 400 body naming every unknown key and, where the edit distance is
+ * small enough to be sure, what was probably meant.
+ */
+function rejectUnknownParams(
+  q: Record<string, string>,
+  reserved: readonly string[],
+  controls: readonly string[],
+): { error: string; unknown: { param: string; didYouMean?: string }[] } | null {
+  const unknown = unknownQueryKeys(q, reserved, controls);
+  if (unknown.length === 0) return null;
+  return {
+    error:
+      `Unknown query parameter${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}. ` +
+      'The request was refused rather than answered without the filter.',
+    unknown: unknown.map((param) => {
+      const guess = suggestKey(param, reserved, controls);
+      return guess ? { param, didYouMean: guess } : { param };
+    }),
+  };
+}
 const MARKET_RESERVED = ['make', 'model', 'year', 'mileage', 'currency'] as const;
 
 /**
@@ -209,8 +250,54 @@ async function rateAll(rows: Listing[]) {
  * objectives, and the answer to it is a Pareto frontier plus a blended score,
  * neither of which an ORDER BY can express. See core/rank.ts.
  */
+/**
+ * Counts what would have matched with each single constraint dropped.
+ *
+ * One query per relaxed constraint, and only ever on an empty result, so it
+ * costs nothing on the path that returns cars. A constraint whose removal still
+ * yields nothing is not the binding one and is left out of the report.
+ */
+async function explainEmpty(filters: SearchFilters): Promise<{
+  relaxing: { constraint: string; wouldMatch: number }[];
+  message: string;
+} | null> {
+  const candidates: { constraint: string; patch: Partial<SearchFilters> }[] = [];
+  if (filters.priceMax !== undefined) candidates.push({ constraint: `priceMax ${filters.priceMax}`, patch: { priceMax: undefined } });
+  if (filters.mileageMax !== undefined) candidates.push({ constraint: `mileageMax ${filters.mileageMax}`, patch: { mileageMax: undefined } });
+  if (filters.yearMin !== undefined) candidates.push({ constraint: `yearMin ${filters.yearMin}`, patch: { yearMin: undefined } });
+  if (filters.yearMax !== undefined) candidates.push({ constraint: `yearMax ${filters.yearMax}`, patch: { yearMax: undefined } });
+  if (Object.keys(filters.facets ?? {}).length > 1) candidates.push({ constraint: 'the attribute filters', patch: { facets: { currency: filters.facets!.currency! } } });
+  /**
+   * Make and model are deliberately not relaxed. They are what the buyer came
+   * for, not a constraint they might trade away, and dropping them produces the
+   * least useful sentence available: an i8 search answered "dropping model i8
+   * would match 200", which is every BMW in the index.
+   */
+  if (candidates.length === 0) return null;
+
+  const relaxing: { constraint: string; wouldMatch: number }[] = [];
+  for (const c of candidates) {
+    const rows = await store.search({ ...filters, ...c.patch, sort: 'price', limit: 200, offset: 0 });
+    if (rows.length > 0) relaxing.push({ constraint: c.constraint, wouldMatch: rows.length });
+  }
+  /**
+   * Fewest matches first. Each entry is a real trade the buyer could make, and
+   * the tightest one is the constraint actually doing the blocking, so it leads.
+   */
+  relaxing.sort((a, b) => a.wouldMatch - b.wouldMatch);
+
+  const phrase = (r: { constraint: string; wouldMatch: number }) =>
+    `${r.wouldMatch} ${r.wouldMatch === 1 ? 'car matches' : 'cars match'} without ${r.constraint}`;
+  const message = relaxing.length === 0
+    ? 'Nothing matches even with any single filter removed. This combination is far from the market.'
+    : `No car satisfies every filter at once. ${relaxing.slice(0, 2).map(phrase).join('; ')}.`;
+  return { relaxing, message };
+}
+
 app.get('/api/search', async (c) => {
   const q = c.req.query();
+  const bad = rejectUnknownParams(q, SEARCH_RESERVED, SEARCH_CONTROLS);
+  if (bad) return c.json(bad, 400);
   const filters = filtersFrom(q);
   const limit = Math.min(int(q.limit) ?? 200, 500);
   const offset = int(q.offset) ?? 0;
@@ -249,8 +336,22 @@ app.get('/api/search', async (c) => {
   const ranked = rank(rankInputs, q.sort);
   const page = ranked.ranked.slice(offset, offset + limit);
 
+  /**
+   * When nothing matched, say which constraint did it.
+   *
+   * An empty page is the least informative screen in the product and the most
+   * common one on a specific search. A real buyer asked for a BMW i8 under
+   * $40,000 with under 60,000 miles and got nothing, while the index held sixty
+   * i8s in which every car under $40,000 had crossed 60,000 miles. The answer
+   * they needed was sitting in the data: the two limits do not intersect in
+   * this market. Relaxing each one in turn and counting is the cheapest way to
+   * find that out, and it turns a dead end into the actual finding.
+   */
+  const relaxed = page.length === 0 ? await explainEmpty(filters) : null;
+
   return c.json({
     query: { ...filters, sort: q.sort ?? DEFAULT_SORT },
+    ...(relaxed ? { noMatches: relaxed } : {}),
     sort: {
       label: ranked.label,
       terms: ranked.terms,
@@ -329,6 +430,8 @@ function describeUnknownExclusions(filters: SearchFilters): string[] {
  */
 app.get('/api/facets', async (c) => {
   const q = c.req.query();
+  const bad = rejectUnknownParams(q, SEARCH_RESERVED, FACETS_CONTROLS);
+  if (bad) return c.json(bad, 400);
   const coverage = await store.facetCoverage({
     make: q.make,
     model: q.model,
