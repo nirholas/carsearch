@@ -49,7 +49,9 @@ export const SOURCES: Source[] = [
       notes: 'Tested: plain fetch 403, real Chromium 200 with full results. Results stream in per source asynchronously, so poll the result count until stable rather than using a fixed wait. Per-model queries return far more than one broad query because each model gets its own quota.' }),
   s({ id: 'searchtempest', name: 'SearchTempest', homepage: 'https://www.searchtempest.com', category: 'aggregator',
       notes: 'Craigslist and Facebook Marketplace multi-city search. The practical route into the two largest private-party pools.' }),
-  s({ id: 'iseecars', name: 'iSeeCars', homepage: 'https://www.iseecars.com', category: 'aggregator' }),
+  s({ id: 'iseecars', name: 'iSeeCars', homepage: 'https://www.iseecars.com', category: 'aggregator',
+      status: 'planned', transport: 'tls',
+      notes: 'Swept 2026-09-10: 200 over a Chrome TLS fingerprint, 437KB carrying 190 formatted prices, so it is reachable rather than blocked. Its JSON-LD is Organization and WebSite boilerplate with no vehicle in it, which is the trap in reading a probe that counts ld+json blocks: the count was 2 and the inventory is in markup. The search URL is still unknown; /used-porsche-for-sale and a Make fragment both 404.' }),
   s({ id: 'autolist', name: 'Autolist', homepage: 'https://www.autolist.com', category: 'aggregator' }),
   s({ id: 'carstory', name: 'CarStory', homepage: 'https://www.carstory.com', category: 'aggregator', access: 'api', status: 'needs-credentials' }),
 
@@ -134,7 +136,15 @@ export const SOURCES: Source[] = [
       notes: 'Wired 2026-09-10 after being recorded blocked to all three transports, which it never was: the earlier test tried the bare chrome and firefox aliases and read two 403s as a wall. firefox133 answers 200 with 697KB, because the alias resolves to a build old enough to be fingerprinted. Rate limits hard, and that is the difficulty of the source rather than an aside: two requests twenty seconds apart both return a full page, the third returns a Cloudflare interstitial, and about ninety seconds of quiet clears it, so the adapter paces in tens of seconds and treats the interstitial as throttling to back off from. No payload to lift, the only JSON-LD is Organization and BreadcrumbList, so listings are read from anchored markup. Two markup traps: the anchors are split across lines, and an auction is /auction/ while a classified is /listing/, so keying on one silently drops half the page. Auction cards carry no price on the search page and are skipped rather than guessed at.' }),
   s({ id: 'classiccars', name: 'ClassicCars.com', homepage: 'https://classiccars.com', category: 'auction-enthusiast' }),
   s({ id: 'collectingcars', name: 'Collecting Cars', homepage: 'https://collectingcars.com', category: 'auction-enthusiast',
-      countries: ['GB', 'US', 'AU'], priceKinds: ['sold', 'bid'], notes: "Probed 2026-09-08. Reachable with a Chrome TLS fingerprint (403 to plain fetch). Its frontend searches a Typesense index at dora.production.collecting.com/multi_search, which returns current bid, sold price and buy-now as separate fields plus mileage, fuel and transmission per lot: an unusually good payload. The adapter is written (sources/collectingcars.ts) but every request shape tried returns 401, most likely because the scoped key names a collection other than the guessed 'auctions'. Capture the real request body to settle it."}),
+      countries: ['GB', 'US', 'AU'], priceKinds: ['sold', 'bid'], notes: "Probed 2026-09-08. Reachable with a Chrome TLS fingerprint (403 to plain fetch). Its frontend searches a Typesense index at dora.production.collecting.com/multi_search, which returns current bid, sold price and buy-now as separate fields plus mileage, fuel and transmission per lot: an unusually good payload. The adapter is written (sources/collectingcars.ts) but every request shape tried returns 401, most likely because the scoped key names a collection other than the guessed 'auctions'. Capture the real request body to settle it."
+      /**
+       * Swept again 2026-09-10, and the HTML tells a different story from the
+       * API. The page answers 200 with 1.2MB, fifteen embedded-payload markers
+       * and 87 formatted prices over a Chrome TLS fingerprint. The 401 is the
+       * Typesense search endpoint refusing a scoped key, not the site refusing
+       * us, so the route in is the page payload rather than the API.
+       */
+     }),
   s({ id: 'hagertymarketplace', name: 'Hagerty Marketplace', homepage: 'https://www.hagerty.com/marketplace', category: 'auction-enthusiast', priceKinds: ['sold', 'bid'],
       status: 'live', transport: 'fetch', access: 'feed',
       notes: 'Wired 2026-09-08 over the TLS transport. Their money fields are integer CENTS: a 1963 356B carrying amount 12500000 is $125,000, and reading it as dollars would have put a fictional eight-figure car into the collector cohort. Thin so far: the landing page exposes only ten to fifteen live lots, and no URL has been found that lists completed sales, which is the half worth having. marketplace.hagerty.com does not resolve; the working host is www.hagerty.com/marketplace.' }),
