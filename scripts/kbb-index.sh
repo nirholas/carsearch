@@ -101,16 +101,35 @@ fi
 # picks up where it stopped instead of re-crawling from Porsche every time.
 STATE=${STATE:-data/kbb-index-done.txt}
 LOG=${LOG:-data/kbb-index.log}
+
+# Makes that answered cleanly with nothing.
+#
+# "Leave an empty pass unrecorded so the next run retries it" was right when
+# this file named 28 marques that all had inventory: an empty answer there meant
+# something had broken. Against the full vPIC catalogue it is a trap. Most of
+# those 406 names are coachbuilders, kit-car shops and defunct badges that will
+# never have KBB inventory, so under that rule every run re-crawls three hundred
+# makes it has already asked about, and the pass can never report complete.
+#
+# A clean exit with zero on-make rows is an ANSWER, not a failure. It is
+# recorded here rather than in STATE so the two stay distinguishable: delete
+# this file to re-ask the whole tail, without losing the record of which makes
+# actually carry cars. A timeout or a non-zero exit is still left unrecorded,
+# because that is a failure and does deserve a retry.
+EMPTY=${EMPTY:-data/kbb-index-empty.txt}
 mkdir -p "$(dirname "$STATE")"
-touch "$STATE"
+touch "$STATE" "$EMPTY"
 
 : > "$LOG"
-echo "resuming: $(wc -l < "$STATE") make(s) already done" | tee -a "$LOG"
+echo "resuming: $(wc -l < "$STATE") with cars, $(wc -l < "$EMPTY") known empty" | tee -a "$LOG"
 
 while IFS= read -r mk; do
   [ -z "$mk" ] && continue
   if grep -qxF "$mk" "$STATE"; then
     echo "=== kbb $mk (done, skipping)" | tee -a "$LOG"
+    continue
+  fi
+  if grep -qxF "$mk" "$EMPTY"; then
     continue
   fi
   echo "=== kbb $mk" | tee -a "$LOG"
@@ -122,7 +141,9 @@ while IFS= read -r mk; do
     if echo "$out" | grep -qE "^kbb .* [1-9][0-9]* on-make"; then
       printf '%s\n' "$mk" >> "$STATE"
     else
-      echo "    no on-make rows, leaving unrecorded for retry" | tee -a "$LOG"
+      # Answered, and has nothing. Not a failure, so do not re-ask every run.
+      printf '%s\n' "$mk" >> "$EMPTY"
+      echo "    no on-make rows, recorded as empty" | tee -a "$LOG"
     fi
   else
     echo "    FAILED or timed out, leaving unrecorded for retry" | tee -a "$LOG"
@@ -130,4 +151,4 @@ while IFS= read -r mk; do
   sleep 4
 done <<< "$MAKES"
 
-echo "complete: $(wc -l < "$STATE") of $(echo "$MAKES" | grep -c .) makes" | tee -a "$LOG"
+echo "complete: $(wc -l < "$STATE") makes with cars, $(wc -l < "$EMPTY") empty, of $(echo "$MAKES" | grep -c .) asked" | tee -a "$LOG"
