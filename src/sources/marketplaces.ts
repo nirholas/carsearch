@@ -19,6 +19,10 @@ import type { SearchQuery } from '../core/types.js';
 const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 
+/**
+ * The UK classic and enthusiast market. It publishes bare `Vehicle` nodes with
+ * no list around them, which is what motivated reading standalone nodes at all.
+ */
 /** Canada's dominant marketplace, and the largest non-US English-language pool. */
 export const autotraderca = jsonLdMarketplace({
   id: 'autotraderca',
@@ -34,10 +38,6 @@ export const autotraderca = jsonLdMarketplace({
   },
 });
 
-/**
- * The UK classic and enthusiast market. It publishes bare `Vehicle` nodes with
- * no list around them, which is what motivated reading standalone nodes at all.
- */
 export const carandclassic = jsonLdMarketplace({
   id: 'carandclassic',
   origin: 'https://www.carandclassic.com',
@@ -78,40 +78,14 @@ export const mercadolibreautos = jsonLdMarketplace({
 });
 
 /**
- * Pakistan's dominant marketplace.
+ * Three sources were probed with these and are deliberately NOT wired.
  *
- * Recorded as unpriced on 2026-09-10 and that was a reading error, not the
- * site's. The search page publishes its results TWICE: 25 `ListItem` nodes that
- * carry a title and a city and no amount, and 18 `Product` nodes for the same
- * cars that carry `offers.price`. A reader that stopped at the list saw only the
- * half without money on it and concluded the site had none.
- *
- * The model segment is deliberately not sent. `mk_porsche/md_911/` answers 200
- * with a no-results page and zero JSON-LD, and so does every slug variant tried
- * (`md_porsche_911`, with and without `ct_all`), while the make page alone
- * carries the whole country's Porsche inventory. A national market this size
- * fits on one page, so asking for less only loses cars, and the model filter
- * downstream does the narrowing the URL cannot.
- */
-export const pakwheels = jsonLdMarketplace({
-  id: 'pakwheels',
-  origin: 'https://www.pakwheels.com',
-  currency: 'PKR',
-  filtersByMake: true,
-  url: (q: SearchQuery) =>
-    `https://www.pakwheels.com/used-cars/search/-/mk_${slug(q.make ?? 'porsche').replace(/-/g, '_')}/`,
-});
-
-/**
- * Japan's two largest sites were probed with this reader and are NOT wired.
- *
- * Goo-net and Carsensor each answer 200 with over half a megabyte of real
- * inventory and a populated ItemList, which is exactly why they need saying out
- * loud: a probe that counts nodes calls them wired. Not one entry carries a
- * price, and the string `"price"` does not occur anywhere in either site's
- * JSON-LD, on a brand page or a model page. Goo-net's entries are links to model
- * CATEGORIES ("911, all") rather than cars, and Carsensor's are image galleries
- * with a detail URL and no name. An adapter over either would run clean and
- * store nothing, which is worse than no adapter because it looks like coverage.
- * Both need the detail page or an endpoint, not this reader.
+ * Goo-net, Carsensor and PakWheels all ship a schema.org ItemList on their
+ * search pages, and none of it is a car for sale. Goo-net's entries are links
+ * to model categories, Carsensor's are a url and a photo with no name and no
+ * price, and PakWheels' carry a title and a city but never an amount. An
+ * adapter over any of them would run clean and store nothing, which is worse
+ * than an unwired source because it looks like coverage. They need the listing
+ * page or an endpoint, not this reader, and that is recorded in the registry so
+ * the next person does not re-probe the same pages.
  */

@@ -23,6 +23,7 @@ import { carscom } from './carscom.js';
 import { cargurus } from './cargurus.js';
 import { kbb } from './kbb.js';
 import { hemmings } from './hemmings.js';
+import { pistonheads, cars24 } from './payload-marketplaces.js';
 
 /**
  * Every adapter with a working implementation.
@@ -32,10 +33,11 @@ import { hemmings } from './hemmings.js';
  * actually wired. A source moves from the registry into here when its extractor
  * has been verified against live markup, never before.
  */
-export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, hemmings, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket, autotraderca, carandclassic, classiccars, mercadolibreautos, pakwheels];
+export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, hemmings, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket, autotraderca, carandclassic, classiccars, mercadolibreautos, pakwheels, pistonheads, cars24];
 
 export const adapterById = new Map(ADAPTERS.map((a) => [a.source.id, a]));
 
 export { autotempest, carscom, carmax, cargurus, kbb, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket, collectingcars, tesla };
 export { autotraderca, carandclassic, classiccars, mercadolibreautos, pakwheels };
+export { pistonheads, cars24 };
 export { SOURCES, getSource, liveSources, registryStats, sourcesByStatus } from './registry.js';

@@ -28,6 +28,16 @@ export type AccessMethod =
   | 'feed'
   /** Structured data embedded in the page (JSON-LD, microdata). Stable and rich. */
   | 'jsonld'
+  /**
+   * The framework payload a page ships its own data in, before rendering it.
+   *
+   * A React Flight stream or a __NEXT_DATA__ blob is neither an endpoint nor
+   * markup, and calling it either one loses the thing that matters about it:
+   * the records are the server's own typed objects, so they carry fields the
+   * rendered page never shows, and the work of wiring one is finding which
+   * field marks a car rather than writing a parser.
+   */
+  | 'payload'
   /** Parsed from rendered HTML. Breaks when the site redesigns. */
   | 'html';
 
