@@ -11,12 +11,6 @@ import { hagertymarketplace } from './hagerty.js';
 import { pcarmarket } from './pcarmarket.js';
 import { autoscout24, finnno, blocket } from './international.js';
 import { autotraderca, carandclassic, classiccars, mercadolibreautos, pakwheels } from './marketplaces.js';
-/**
- * Written and typed, but deliberately NOT in ADAPTERS: the search endpoint
- * answers 401 to every request shape tried so far, so running it would fail on
- * every crawl and teach nobody anything. See the file header and the registry
- * note for exactly what is known and what the next attempt should try.
- */
 import { collectingcars } from './collectingcars.js';
 import { tesla } from './tesla.js';
 import { carscom } from './carscom.js';
@@ -33,7 +27,7 @@ import { pistonheads, cars24 } from './payload-marketplaces.js';
  * actually wired. A source moves from the registry into here when its extractor
  * has been verified against live markup, never before.
  */
-export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, hemmings, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket, autotraderca, carandclassic, classiccars, mercadolibreautos, pakwheels, pistonheads, cars24];
+export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, hemmings, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket, autotraderca, carandclassic, classiccars, mercadolibreautos, pakwheels, pistonheads, cars24, collectingcars];
 
 export const adapterById = new Map(ADAPTERS.map((a) => [a.source.id, a]));
 

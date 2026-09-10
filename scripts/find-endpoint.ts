@@ -46,3 +46,17 @@ for (const r of responses.slice(0, 12)) {
   }
 }
 await closeBrowser();
+
+/**
+ * The request that produced each response, for the POST search APIs.
+ *
+ * A search endpoint is almost always a POST and the response alone does not say
+ * what was asked for: the collection name, the queried fields and the filter
+ * syntax exist only in the request body. Printing them is the difference
+ * between finding an endpoint and being able to call it.
+ */
+for (const r of responses) {
+  if (!r.request) continue;
+  console.log(`\nrequest to ${r.url.split('?')[0]}`);
+  console.log(r.request.slice(0, 4000));
+}

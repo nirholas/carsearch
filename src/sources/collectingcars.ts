@@ -20,19 +20,19 @@ import { isRoundedMileage } from '../core/normalize.js';
  * still rotates, so it is discovered at run time from the page rather than
  * hardcoded. One browser load per crawl buys an endpoint that keeps working.
  *
- * NOT YET LIVE, and deliberately absent from ADAPTERS so it cannot fail on
- * every crawl. What is known, so the next attempt does not start over:
+ * The collection is `production_listings` and every request must be filtered to
+ * `sites:=cars`, which is what the 401 was about: a Typesense scoped key names
+ * the collections it may read and rejects any other as unauthorized, so the
+ * guess of `auctions` failed authentication rather than returning nothing. The
+ * name was recovered by capturing the request body their frontend sends, not
+ * just the response, because a search API is a POST and the query lives in the
+ * body. It is the difference between seeing an endpoint and being able to call
+ * one.
  *
- *   - The endpoint is real and returns 168 matching lots for an empty query,
- *     48 per page, with exactly the fields modelled below.
- *   - Every request written here comes back 401, with the key in the query
- *     string, in the X-TYPESENSE-API-KEY header, and in both.
- *   - The likely cause is the collection name. Typesense scoped keys embed the
- *     collections they may read and reject anything else as unauthorized, and
- *     `auctions` below is a guess.
- *   - Reading the real request body settles it, but their frontend only issued
- *     the call on one page load out of several, so it needs a capture that
- *     retries rather than a single visit.
+ * It is worth the trouble because of what `listingStage:sold` reaches: 26,244
+ * completed sales with the price, the currency and the exact moment of sale.
+ * Completed sales are the scarcest input this index has, and the whole product
+ * thesis is rating asking prices against them.
  */
 
 interface CcFeatures {
@@ -65,6 +65,8 @@ interface CcDocument {
   reserveMet?: boolean;
   isSoldPriceHidden?: boolean;
   dtStageEndsUTC?: string;
+  dtSoldUTC?: string;
+  saleFormat?: string;
   mainImageUrl?: string;
   features?: CcFeatures;
   lotType?: string;
@@ -103,7 +105,7 @@ function parseMileage(raw: string | undefined): { miles: number | null; rounded:
  * to avoid: a current bid is not a price anyone has paid.
  */
 function priceOf(d: CcDocument): { price: number | null; kind: PriceKind } {
-  const ended = /sold|ended|complete/i.test(`${d.listingStage ?? ''} ${d.stage ?? ''}`);
+  const ended = /sold|ended|complete/i.test(`${d.listingStage ?? ''} ${d.stage ?? ''} ${d.saleFormat ?? ''}`);
   if (ended && d.priceSold && !d.isSoldPriceHidden) return { price: d.priceSold, kind: 'sold' };
   if (d.currentBid) return { price: d.currentBid, kind: 'bid' };
   if (d.priceBuyNow) return { price: d.priceBuyNow, kind: 'ask' };
@@ -138,9 +140,22 @@ export const collectingcars: SourceAdapter = {
             headers: { 'Content-Type': 'application/json', 'X-TYPESENSE-API-KEY': key },
             body: JSON.stringify({
               searches: [{
-                collection: 'auctions',
+                collection: 'production_listings',
                 q: term === '*' ? '*' : term,
-                query_by: 'title,vehicleMake,modelName',
+                query_by: 'title,productMake,vehicleMake,productYear,modelId',
+                /**
+                 * `sites:=cars` is not optional. The same index serves their
+                 * number-plate and memorabilia catalogues, and an unfiltered
+                 * query returns "9 HL" registration plates alongside the cars.
+                 */
+                filter_by: 'sites:=cars',
+                // Newest sale first, so a capped result set is the recent end
+                // of the market rather than an arbitrary slice of it.
+                sort_by: 'tsSoldUTC:desc',
+                include_fields:
+                  'id,auctionId,slug,title,location,countryCode,currencyCode,currentBid,priceBuyNow,' +
+                  'priceSold,isSoldPriceHidden,listingStage,stage,saleFormat,lotType,noReserve,reserveMet,' +
+                  'productYear,productMake,vehicleMake,modelName,features,mainImageUrl,dtSoldUTC,dtStageEndsUTC',
                 per_page: 250,
                 page,
               }],
@@ -197,7 +212,13 @@ export const collectingcars: SourceAdapter = {
               fuelType: f.fuelType ?? null,
               transmission: parseTransmission(f.transmission),
               drivetrain: parseDrivetrain(f.driveSide),
-              eventDate: d.dtStageEndsUTC ? d.dtStageEndsUTC.slice(0, 10) : null,
+              /**
+               * The sold timestamp is the date of the sale; the stage end is
+               * only when the listing stopped running. For a completed sale
+               * they are usually the same day and where they differ the sale
+               * is the one a price history is measured against.
+               */
+              eventDate: (d.dtSoldUTC ?? d.dtStageEndsUTC)?.slice(0, 10) ?? null,
               imageUrl: d.mainImageUrl ?? null,
               raw: {
                 noReserve: d.noReserve,

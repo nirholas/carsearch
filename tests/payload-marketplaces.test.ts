@@ -50,3 +50,20 @@ test('a field that is sometimes an object does not kill the source', () => {
   assert.equal(text({ nothing: 1 }), null);
   assert.equal(text(undefined), null);
 });
+
+test('a bid is never recorded as a price someone paid', () => {
+  // Collecting Cars publishes currentBid, priceSold and priceBuyNow as three
+  // separate fields on the same lot. Which one is real depends on the stage,
+  // and recording a live bid as a sale is the mistake this index exists to
+  // avoid: every asking price is rated against completed sales.
+  const kindOf = (d: { listingStage?: string; priceSold?: number; currentBid?: number; isSoldPriceHidden?: boolean }) => {
+    const ended = /sold|ended|complete/i.test(d.listingStage ?? '');
+    if (ended && d.priceSold && !d.isSoldPriceHidden) return 'sold';
+    if (d.currentBid) return 'bid';
+    return null;
+  };
+  assert.equal(kindOf({ listingStage: 'sold', priceSold: 72000 }), 'sold');
+  assert.equal(kindOf({ listingStage: 'live auction', currentBid: 24250 }), 'bid');
+  // A sale whose price the seller hid is not a sale this index can use.
+  assert.equal(kindOf({ listingStage: 'sold', priceSold: 72000, isSoldPriceHidden: true }), null);
+});

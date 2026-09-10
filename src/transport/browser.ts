@@ -178,6 +178,8 @@ export interface CapturedResponse {
   /** Parsed JSON body. Non-JSON responses are not captured. */
   body: unknown;
   bytes: number;
+  /** The request body, for the POST search APIs where the query lives there. */
+  request?: string;
 }
 
 /**
@@ -211,7 +213,22 @@ export async function captureJson(
       .then((text) => {
         if (text.length < minBytes) return;
         try {
-          captured.push({ url: res.url(), status: res.status(), body: JSON.parse(text), bytes: text.length });
+          captured.push({
+            url: res.url(),
+            status: res.status(),
+            body: JSON.parse(text),
+            bytes: text.length,
+            /**
+             * The request body, when there was one.
+             *
+             * A search API is almost always a POST, and the response alone does
+             * not say what was asked for. Collecting Cars answers over Typesense
+             * and the collection name, the queried fields and the filter syntax
+             * exist only in the request; without them the endpoint is visible
+             * and unusable.
+             */
+            request: res.request().postData() ?? undefined,
+          });
         } catch {
           /* a content-type that lied; not worth reporting */
         }
