@@ -79,6 +79,26 @@ export function itemListEntries(nodes: JsonLdNode[]): JsonLdNode[] {
   return out;
 }
 
+/**
+ * Every node on the page that describes a vehicle for sale.
+ *
+ * An ItemList is the tidy case and it is not the common one. Three sources
+ * publish their whole result set as bare `Vehicle` or `Product` nodes with no
+ * list around them, and a reader that only unwrapped ItemLists saw nothing on
+ * any of them: Car & Classic had 57 priced cars on the page and reported zero.
+ * ClassicCars.com goes further and types its entries `"car"` in lower case,
+ * which schema.org does not define and which only a case-insensitive match
+ * finds.
+ *
+ * Both routes are read and the union is deduplicated by identity, so a site
+ * that publishes a car inside a list AND again at the top level yields it once.
+ */
+export function vehicleNodes(nodes: JsonLdNode[]): JsonLdNode[] {
+  const out = new Set<JsonLdNode>(itemListEntries(nodes));
+  for (const n of nodesOfType(nodes, 'Car', 'Vehicle', 'Product', 'IndividualProduct')) out.add(n);
+  return [...out];
+}
+
 /** schema.org lets a value be a scalar, an array, or an object with @value. */
 export function scalar(value: unknown): string | null {
   if (value === null || value === undefined) return null;

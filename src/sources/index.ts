@@ -10,6 +10,7 @@ import { dupontregistry } from './dupontregistry.js';
 import { hagertymarketplace } from './hagerty.js';
 import { pcarmarket } from './pcarmarket.js';
 import { autoscout24, finnno, blocket } from './international.js';
+import { autotraderca, carandclassic, classiccars, mercadolibreautos } from './marketplaces.js';
 /**
  * Written and typed, but deliberately NOT in ADAPTERS: the search endpoint
  * answers 401 to every request shape tried so far, so running it would fail on
@@ -31,9 +32,10 @@ import { hemmings } from './hemmings.js';
  * actually wired. A source moves from the registry into here when its extractor
  * has been verified against live markup, never before.
  */
-export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, hemmings, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket];
+export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, hemmings, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket, autotraderca, carandclassic, classiccars, mercadolibreautos];
 
 export const adapterById = new Map(ADAPTERS.map((a) => [a.source.id, a]));
 
 export { autotempest, carscom, carmax, cargurus, kbb, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket, collectingcars, tesla };
+export { autotraderca, carandclassic, classiccars, mercadolibreautos };
 export { SOURCES, getSource, liveSources, registryStats, sourcesByStatus } from './registry.js';

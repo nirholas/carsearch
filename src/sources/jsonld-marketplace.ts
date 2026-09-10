@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import type { SourceAdapter, SearchQuery, Listing } from '../core/types.js';
 import { makeListing, type ListingDraft } from '../core/listing.js';
 import { getSource } from './registry.js';
 import { fetchWithTls } from '../transport/tls.js';
-import { extractJsonLd, itemListEntries, scalar, num, offerPrice, offerLocation, firstImage, type JsonLdNode } from './jsonld.js';
+import { extractJsonLd, vehicleNodes, scalar, num, offerPrice, offerLocation, firstImage, type JsonLdNode } from './jsonld.js';
 import { parseYear, parseMake, parseModel, isRoundedMileage } from '../core/normalize.js';
 import { canonicalFuelType, canonicalBodyType, canonicalColor } from '../core/canonical.js';
 import { parseTransmission, parseDrivetrain } from '../core/facets.js';
@@ -75,6 +76,20 @@ function offerUrl(node: JsonLdNode): string | null {
   return scalar(first?.url) ?? scalar(node.url) ?? scalar(node['@id']);
 }
 
+/**
+ * A stable short id for a listing key.
+ *
+ * This was base64 of the key truncated to 44 characters, which encodes only the
+ * first 33 bytes of it. Every listing on a site shares a long URL prefix, so the
+ * truncation landed inside the part they have in common: Car & Classic returned
+ * 57 priced cars and they collapsed into 2 ids, and the adapter reported "59
+ * items, 2 kept" as though the site had published almost nothing. A hash reads
+ * the whole key, so two URLs that differ anywhere differ here.
+ */
+function fingerprint(key: string): string {
+  return createHash('sha1').update(key).digest('base64url').slice(0, 22);
+}
+
 export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {
   return {
     source: getSource(spec.id)!,
@@ -94,7 +109,7 @@ export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {
             continue;
           }
 
-          const items = itemListEntries(extractJsonLd(res.body));
+          const items = vehicleNodes(extractJsonLd(res.body));
           let kept = 0;
 
           for (const item of items) {
@@ -105,7 +120,7 @@ export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {
             const href = offerUrl(item);
             // These payloads carry no listing id, so the offer path is the key.
             const key = href ?? `${name}:${price}`;
-            const id = `${spec.id}:${Buffer.from(key).toString('base64url').slice(0, 44)}`;
+            const id = `${spec.id}:${fingerprint(key)}`;
             if (out.has(id)) continue;
 
             const brand = scalar((item.brand as JsonLdNode | undefined)?.name) ?? scalar(item.brand);
