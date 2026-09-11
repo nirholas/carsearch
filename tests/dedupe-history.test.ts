@@ -100,3 +100,27 @@ test('a VIN match is never split by a price disagreement', () => {
   assert.equal(groups.length, 1);
   assert.equal(groups[0]!.primary.titleStatus, 'salvage');
 });
+
+test('a completed sale is never merged into an asking price without a VIN', () => {
+  // Live: a 2014 BMW i8 that sold at RM Sotheby's for about $44,000 was
+  // absorbed into a Texas dealer's $44,444 asking listing on the fuzzy key,
+  // and the comparison this index is built on vanished into one row that was
+  // neither a sale nor an offer.
+  const sold = base({ id: 'rm:1', sourceId: 'rmsothebys', vin: null, price: 44000, priceKind: 'sold', mileage: null });
+  const asking = base({ id: 'carscom:1', sourceId: 'carscom', vin: null, price: 44444, priceKind: 'ask', mileage: null });
+  assert.equal(dedupe([sold, asking]).length, 2);
+});
+
+test('two asking listings of one car still merge', () => {
+  const a = base({ id: 'a:1', sourceId: 'a', vin: null, price: 44000, priceKind: 'ask', mileage: 51811 });
+  const b = base({ id: 'b:1', sourceId: 'b', vin: null, price: 44444, priceKind: 'ask', mileage: 51811 });
+  assert.equal(dedupe([a, b]).length, 1);
+});
+
+test('a VIN still merges a car that sold and was then relisted', () => {
+  // The VIN is proof, so the two records stay one vehicle; what must not happen
+  // is two different cars being fused because their numbers looked alike.
+  const sold = base({ id: 'a:1', sourceId: 'a', price: 44000, priceKind: 'sold' });
+  const asking = base({ id: 'b:1', sourceId: 'b', price: 48000, priceKind: 'ask' });
+  assert.equal(dedupe([sold, asking]).length, 1);
+});

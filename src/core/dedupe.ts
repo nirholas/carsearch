@@ -36,6 +36,13 @@ function vinKey(l: Listing): string | null {
 /**
  * Composite key for sources that do not publish a VIN.
  *
+ * The price kind leads it, and that is not a detail. A completed sale and a
+ * live asking price are different facts about the market even when they concern
+ * the same car, and this index exists to rate one against the other. A 2014 BMW
+ * i8 that sold at RM Sotheby's for about $44,000 was absorbed into a Texas
+ * dealer's $44,444 listing on a fuzzy key, and the comparison disappeared into
+ * a single row that was neither.
+ *
  * An exact odometer reading is the discriminator. Two 2015 BMW i8s that both
  * read 30,191 miles are one car, and requiring the price to agree as well is
  * what stopped that pair merging: an aggregator applies its own markup, so the
@@ -52,7 +59,7 @@ function compositeKey(l: Listing): string | null {
   if (l.mileage === null || isRoundedMileage(l.mileage)) return null;
   const make = (l.make ?? '?').toLowerCase();
   const model = (l.model ?? '?').toLowerCase();
-  return `c:${make}|${model}|${l.year}|${l.mileage}`;
+  return `c:${l.priceKind}|${make}|${model}|${l.year}|${l.mileage}`;
 }
 
 /**
@@ -145,7 +152,7 @@ function weakKey(l: Listing): string | null {
   if (l.year === null || l.price === null) return null;
   const make = (l.make ?? '?').toLowerCase();
   const model = (l.model ?? '?').toLowerCase();
-  return `w:${make}|${model}|${l.year}|${Math.round(l.price / 1000)}`;
+  return `w:${l.priceKind}|${make}|${model}|${l.year}|${Math.round(l.price / 1000)}`;
 }
 
 /** How many fields a record populates, used to pick the best representative. */
