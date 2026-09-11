@@ -75,3 +75,16 @@ test('a make-only search is bounded by the model each listing states', () => {
   assert.equal(sameModel(null, '2019 BMW i8 Roadster', 'i8'), true);
   assert.equal(sameModel(null, '2019 BMW X3', 'i8'), false);
 });
+
+test('the advertised price wins over the fee-inclusive total', () => {
+  // CarGurus `current` equals basePrice where a dealer discloses one and falls
+  // back to the out-the-door total where none does, which is how nine i8
+  // listings arrived at prices like $46,545.50. No car is advertised at fifty
+  // cents, and the same listing read $45,989 through another source.
+  const advertised = (p: { current?: number; basePrice?: number; totalPrice?: number }) =>
+    p.basePrice ?? p.current ?? null;
+  assert.equal(advertised({ current: 48790, basePrice: 48790, totalPrice: 49656 }), 48790);
+  assert.equal(advertised({ current: 46545.5, totalPrice: 46545.5 }), 46545.5);
+  assert.equal(advertised({ basePrice: 45989, current: 46545.5, totalPrice: 46545.5 }), 45989);
+  assert.equal(advertised({}), null);
+});

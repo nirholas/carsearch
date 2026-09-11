@@ -44,7 +44,7 @@ interface TileData {
   isCpo?: boolean;
   isNew?: boolean;
   mileageData?: { value?: number };
-  priceData?: { current?: number; totalPrice?: number };
+  priceData?: { current?: number; basePrice?: number; totalPrice?: number; feeDisclosure?: string };
   ontologyData?: OntologyData;
   pictureData?: { url?: string };
   exteriorColorData?: { localized?: string; normalized?: string };
@@ -148,6 +148,20 @@ function sameModel(stated: string | undefined, wanted: string): boolean {
   const a = key(stated);
   const b = key(wanted);
   return a === b || a.startsWith(b) || b.startsWith(a);
+}
+
+/**
+ * The advertised price of a tile.
+ *
+ * `current` is not always the sticker. Where a dealer discloses a base price it
+ * equals `basePrice`, and where one does not it falls back to the fee-inclusive
+ * total, which is how nine i8 listings arrived at prices like $46,545.50: a car
+ * is never advertised at fifty cents, and the same listing read $45,989 through
+ * another source. `basePrice` is the number the dealer actually advertised, so
+ * it wins, and `current` is the fallback for a tile that omits it.
+ */
+function advertisedPrice(p: TileData['priceData']): number | null {
+  return p?.basePrice ?? p?.current ?? null;
 }
 
 const SEED_URL = 'https://www.cargurus.com/Cars/l-Used-Porsche-m48';
@@ -260,11 +274,11 @@ export const cargurus: SourceAdapter = {
             trim: o.trimName ?? null,
             series: null,
             vin: isValidVin(t.vin) ? t.vin.toUpperCase() : null,
-            // The headline price, not the price including fees: every other
-            // source publishes the advertised number, and comparing one
-            // source's out-the-door price against another's sticker is a
-            // silent apples-to-oranges error.
-            price: t.priceData?.current ?? null,
+            // The advertised price, never the out-the-door one: every other
+            // source publishes the sticker, and comparing one source's
+            // fee-inclusive total against another's sticker is a silent
+            // apples-to-oranges error.
+            price: advertisedPrice(t.priceData),
             priceKind: 'ask',
             currency: 'USD',
             mileage: miles,
@@ -306,6 +320,15 @@ export const cargurus: SourceAdapter = {
               cargurusDealRating: t.dealRating,
               cargurusDaysOnMarket: t.daysOnMarket,
               totalPriceWithFees: t.priceData?.totalPrice,
+              feeDisclosure: t.priceData?.feeDisclosure,
+              /**
+               * True when the stored price is the only number this dealer
+               * published, fees included. It is not comparable with another
+               * source's sticker, and saying so is better than quietly ranking
+               * it as though it were.
+               */
+              priceIncludesFees: advertisedPrice(t.priceData) === t.priceData?.totalPrice
+                && t.priceData?.basePrice === undefined,
             },
           });
         }
