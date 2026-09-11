@@ -41,3 +41,35 @@ test('listings whose urls share a long prefix get different ids', async () => {
   assert.notEqual(fingerprint(a), fingerprint(b));
   assert.equal(fingerprint(a), fingerprint(a), 'and the same key is stable');
 });
+
+test('a connective word is never stored as a model', async () => {
+  const { parseModel } = await import('../src/core/normalize.js');
+  // PakWheels writes "Porsche Taycan 2020 for sale in Lahore", putting the model
+  // BEFORE the year, so the after-year remainder is "for sale in Lahore" and
+  // every listing on the site was stored with the model "For".
+  assert.equal(parseModel('Porsche Taycan 2020 for sale in Lahore', 'Porsche'), null);
+  // With the site's own phrasing stripped first, the model parses correctly.
+  assert.equal(parseModel('Porsche Taycan 2020', 'Porsche'), 'Taycan');
+});
+
+test('a make-only search is bounded by the model each listing states', () => {
+  const sameModel = (stated: string | null, name: string, wanted: string) => {
+    const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const want = key(wanted);
+    if (!want) return true;
+    if (stated) {
+      const has = key(stated);
+      return has === want || has.startsWith(want) || want.startsWith(has);
+    }
+    return new RegExp(`\\b${wanted}\\b`, 'i').test(name);
+  };
+  // Live: a BMW i8 query returned six X3s and four X5s, each a real BMW.
+  assert.equal(sameModel('X3', '2024 BMW X3', 'i8'), false);
+  assert.equal(sameModel('i3', '2019 BMW i3', 'i8'), false);
+  assert.equal(sameModel('i8', '2019 BMW i8', 'i8'), true);
+  // A trim of the model still counts.
+  assert.equal(sameModel('718 Cayman', '', 'Cayman'), true);
+  // With no stated model the name decides, and silence is not a match.
+  assert.equal(sameModel(null, '2019 BMW i8 Roadster', 'i8'), true);
+  assert.equal(sameModel(null, '2019 BMW X3', 'i8'), false);
+});

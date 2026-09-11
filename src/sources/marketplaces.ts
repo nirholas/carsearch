@@ -98,6 +98,15 @@ export const pakwheels = jsonLdMarketplace({
   origin: 'https://www.pakwheels.com',
   currency: 'PKR',
   filtersByMake: true,
+  // The URL addresses a make, never a model, so a model query has to be
+  // filtered on what each listing says it is.
+  filtersByModel: false,
+  /**
+   * "Porsche Taycan 2020 for sale in Lahore" puts the model before the year and
+   * a location after it, which left the model parser reading the remainder past
+   * the year and storing "For" as the model of every listing on the site.
+   */
+  cleanTitle: (name) => name.replace(/\s+for sale\b.*$/i, '').trim(),
   url: (q: SearchQuery) =>
     `https://www.pakwheels.com/used-cars/search/-/mk_${slug(q.make ?? 'porsche').replace(/-/g, '_')}/`,
 });

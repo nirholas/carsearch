@@ -119,6 +119,37 @@ function buildCodeTable(makes: Filter[]): CodeTable {
   return table;
 }
 
+/**
+ * The code for a model, tolerant of how the two sides spell it.
+ *
+ * The filter payload labels models as CarGurus displays them, which is not
+ * always what a caller asks for: "718 Cayman" against "Cayman", "i8" against
+ * "i8 Coupe". An exact match is tried first, then a normalized one, then a
+ * prefix, and only a single unambiguous candidate is accepted, because two
+ * matches mean the caller's word does not identify one model.
+ */
+function modelCode(models: Map<string, string>, wanted: string): string | undefined {
+  const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const exact = models.get(wanted.toLowerCase());
+  if (exact) return exact;
+
+  const want = key(wanted);
+  const normalized = [...models].filter(([label]) => key(label) === want);
+  if (normalized.length === 1) return normalized[0]![1];
+
+  const prefixed = [...models].filter(([label]) => key(label).startsWith(want));
+  return prefixed.length === 1 ? prefixed[0]![1] : undefined;
+}
+
+/** Whether a tile's stated model is the one asked for. */
+function sameModel(stated: string | undefined, wanted: string): boolean {
+  if (!stated) return false;
+  const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const a = key(stated);
+  const b = key(wanted);
+  return a === b || a.startsWith(b) || b.startsWith(a);
+}
+
 const SEED_URL = 'https://www.cargurus.com/Cars/l-Used-Porsche-m48';
 
 /**
@@ -156,15 +187,40 @@ export const cargurus: SourceAdapter = {
       return [];
     }
 
-    const targets: { url: string; model?: string }[] = [];
+    const targets: { url: string; model?: string; filterByModel?: boolean }[] = [];
     if (entry && query.models?.length) {
       for (const model of query.models) {
-        const code = entry.models.get(model.toLowerCase());
+        let code = modelCode(entry.models, model);
         if (!code) {
-          ctx.log(`cargurus: no code for model "${model}", skipping it`);
+          /**
+           * The code table is seeded from ONE make's page, and a CarGurus
+           * payload lists every MAKE but only the models of the make being
+           * viewed. So a BMW i8 had no code and the query was abandoned
+           * outright, reporting zero for a model the site lists dozens of.
+           *
+           * The make's own page carries its models, so it is loaded once and
+           * merged in. Falling back to the make-level catalogue instead does
+           * not work here: it is a hundred thousand cars deep, the page loop
+           * stops as soon as a page adds nothing new, and a rare model is not
+           * on page one.
+           */
+          ctx.log(`cargurus: no code for "${model}", loading ${query.make} to learn its models`);
+          const learned = await evaluateInPage(
+            `https://www.cargurus.com/Cars/l-Used-${slug(query.make!)}-${entry.code}`,
+            EXTRACT,
+            { waitMs: 6000, scroll: false },
+          );
+          for (const [label, value] of buildCodeTable(learned.makes).get(make!)?.models ?? []) {
+            entry.models.set(label, value);
+          }
+          code = modelCode(entry.models, model);
+          ctx.log(`cargurus: ${query.make} has ${entry.models.size} models, "${model}" ${code ? 'resolved' : 'still unknown'}`);
+        }
+        if (code) {
+          targets.push({ url: `https://www.cargurus.com/Cars/l-Used-${slug(query.make!)}-${slug(model)}-${code}`, model });
           continue;
         }
-        targets.push({ url: `https://www.cargurus.com/Cars/l-Used-${slug(query.make!)}-${slug(model)}-${code}`, model });
+        ctx.log(`cargurus: "${model}" is not a model ${query.make} lists, skipping it`);
       }
     } else if (entry) {
       targets.push({ url: `https://www.cargurus.com/Cars/l-Used-${slug(query.make!)}-${entry.code}` });
@@ -183,6 +239,9 @@ export const cargurus: SourceAdapter = {
         for (const t of tiles) {
           // Ad tiles carry no ontology and no id; they are not inventory.
           if (!t.id || !t.ontologyData?.makeName) continue;
+          // A make-level fallback returns the whole catalogue, so the tile's own
+          // model has to bound it. The tile states it, so nothing is guessed.
+          if (target.filterByModel && !sameModel(t.ontologyData.modelName, target.model!)) continue;
           const id = `cargurus:${t.id}`;
           if (out.has(id)) continue;
 

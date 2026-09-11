@@ -262,7 +262,7 @@ export const SOURCES: Source[] = [
   s({ id: 'carsome', name: 'Carsome', homepage: 'https://www.carsome.my', category: 'retailer', countries: ['MY', 'ID', 'TH', 'SG'] }),
   s({ id: 'sgcarmart', name: 'SgCarMart', homepage: 'https://www.sgcarmart.com', category: 'marketplace', countries: ['SG'] }),
   s({ id: 'pakwheels', name: 'PakWheels', homepage: 'https://www.pakwheels.com', status: 'live', transport: 'tls', access: 'jsonld', category: 'marketplace', countries: ['PK'],
-    notes: 'Wired 2026-09-10. The search page publishes each car twice: an unpriced ListItem and a Product node with offers.price. Reading only the list is what made this look unpriced. 18 priced Porsches nationwide, PKR. Send the make segment only; md_<model> answers 200 with an empty page.',
+    notes: 'Wired 2026-09-10. Marker field is odometer, and the records are unusually complete: listingPrice, year, make, model, variant, ownership as an owner count, and cdpRelativeUrl for the real listing path. Distances are kilometres and are converted. transmissionType is a string on most records and a labelled object on some, which threw text.toLowerCase is not a function and took the whole source down until every string-ish field was coerced.',
   }),
   s({ id: 'dubizzle', name: 'Dubizzle', homepage: 'https://uae.dubizzle.com/motors', category: 'classified', countries: ['AE'] }),
   s({ id: 'kavak', name: 'Kavak', homepage: 'https://www.kavak.com', category: 'retailer', countries: ['MX', 'BR', 'AR', 'CL', 'CO'] }),

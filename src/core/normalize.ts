@@ -279,6 +279,20 @@ export function parseModel(title: string, make: string | null): string | null {
   if (/^(base|awd|rwd|4wd|fwd|coupe|sedan|suv|convertible|cabriolet|spider|spyder|roadster|wagon|used|new)$/i.test(token)) {
     return null;
   }
+  /**
+   * An English connective is never a model.
+   *
+   * This fallback assumes everything after the year is the car, which holds for
+   * "2020 Porsche Taycan" and breaks for a title that puts the model FIRST:
+   * PakWheels writes "Porsche Taycan 2020 for sale in Lahore", so the remainder
+   * is "for sale in Lahore" and every one of its listings was stored with the
+   * model "For". Refusing the word is the narrow fix; the general one is that a
+   * source with a known title shape should clean it before parsing, which is
+   * what the marketplace adapter's own title hook is for.
+   */
+  if (/^(for|sale|in|at|with|and|or|the|a|an|by|from|on|of|to)$/i.test(token)) {
+    return null;
+  }
   return token.replace(/[^A-Za-z0-9-]/g, '') || null;
 }
 

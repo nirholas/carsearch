@@ -39,6 +39,25 @@ export interface MarketplaceSpec {
    * this only controls whether the mismatch is reported.
    */
   filtersByMake?: boolean;
+  /**
+   * Whether the site's search URL actually narrows to the requested model.
+   *
+   * Several address a make only. Returning that make's whole catalogue for a
+   * model query is not thin inventory, it is the wrong answer: a search for a
+   * BMW i8 came back with X3s, X5s and 3 Series, each of them real and none of
+   * them the car. When this is false the rows are filtered on the model they
+   * state for themselves.
+   */
+  filtersByModel?: boolean;
+  /**
+   * Normalizes a listing name before anything is parsed out of it.
+   *
+   * A site with a known title shape can say so once here rather than having
+   * every downstream parser learn its phrasing. PakWheels appends "for sale in
+   * <city>" after the year, which left the model parser reading the remainder
+   * after the year and storing "For" as the model of every listing.
+   */
+  cleanTitle?: (name: string) => string;
 }
 
 /**
@@ -90,6 +109,25 @@ function fingerprint(key: string): string {
   return createHash('sha1').update(key).digest('base64url').slice(0, 22);
 }
 
+/**
+ * Whether a listing is the model that was asked for.
+ *
+ * The record's own model field is the arbiter where it has one; the name is
+ * consulted only when it does not, because a site that states no model must not
+ * be assumed to be selling the one requested. Compared on alphanumerics, so
+ * "718 Cayman" matches "Cayman" and "i3" never matches "i8".
+ */
+function sameModel(stated: string | null, name: string, wanted: string): boolean {
+  const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const want = key(wanted);
+  if (!want) return true;
+  if (stated) {
+    const has = key(stated);
+    return has === want || has.startsWith(want) || want.startsWith(has);
+  }
+  return new RegExp(`\\b${wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(name);
+}
+
 export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {
   return {
     source: getSource(spec.id)!,
@@ -98,6 +136,7 @@ export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {
       const out = new Map<string, ListingDraft>();
       const models = query.models?.length ? query.models : [undefined];
       let offTopic = 0;
+      let offModel = 0;
       let kmConverted = 0;
 
       for (const model of models) {
@@ -113,7 +152,8 @@ export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {
           let kept = 0;
 
           for (const item of items) {
-            const name = scalar(item.name);
+            const raw = scalar(item.name);
+            const name = raw && spec.cleanTitle ? spec.cleanTitle(raw) : raw;
             const price = offerPrice(item);
             if (!name || price === null) continue;
 
@@ -128,6 +168,12 @@ export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {
             if (query.make && make && !make.toLowerCase().includes(query.make.toLowerCase())) {
               offTopic += 1;
               if (!spec.filtersByMake) continue;
+            }
+
+            const stated = scalar(item.model) ?? parseModel(name, make);
+            if (model && spec.filtersByModel === false && !sameModel(stated, name, model)) {
+              offModel += 1;
+              continue;
             }
 
             const { miles, converted } = odometerMiles(item);
@@ -148,7 +194,7 @@ export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {
                */
               year: parseYear(name) ?? num(item.vehicleModelDate) ?? num(item.productionDate),
               make,
-              model: scalar(item.model) ?? parseModel(name, make),
+              model: stated,
               trim: scalar(item.vehicleConfiguration),
               price,
               priceKind: 'ask',
@@ -178,6 +224,9 @@ export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {
           `${spec.id}: ${offTopic} rows are not ${query.make}` +
           `${spec.filtersByMake ? ' despite their filter' : ' (their search does not filter by make)'}`,
         );
+      }
+      if (offModel) {
+        ctx.log(`${spec.id}: ${offModel} rows are not the requested model (their search narrows by make only)`);
       }
       if (kmConverted) ctx.log(`${spec.id}: converted ${kmConverted} kilometre readings to miles`);
 

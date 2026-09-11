@@ -19,10 +19,18 @@ import { parseTransmission } from '../core/facets.js';
  * carrying the odometer, the gearbox and the owner count as typed fields.
  */
 
-/** Compares two names on alphanumerics, so "Mercedes-Benz" matches "Mercedes Benz". */
-function sameName(a: string | undefined, b: string): boolean {
+/**
+ * Compares two names on alphanumerics, so "Mercedes-Benz" matches "Mercedes
+ * Benz". With `prefix`, a trim of the model also matches ("i8 Coupe" against
+ * "i8"), which is what a model comparison needs and a make comparison does not.
+ */
+function sameName(a: string | undefined | null, b: string, prefix = false): boolean {
+  if (a === undefined || a === null) return false;
   const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
-  return a !== undefined && key(a) === key(b);
+  const x = key(a);
+  const y = key(b);
+  if (x === y) return true;
+  return prefix && (x.startsWith(y) || y.startsWith(x));
 }
 
 /**
@@ -197,6 +205,7 @@ export const cars24: SourceAdapter = {
     const now = new Date().toISOString();
     const out = new Map<string, ListingDraft>();
     const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+    const wantedModel = query.models?.[0];
     const url = query.make
       ? `https://www.cars24.com/buy-used-${slug(query.make)}-cars/`
       : 'https://www.cars24.com/buy-used-cars/';
@@ -211,10 +220,21 @@ export const cars24: SourceAdapter = {
       const rows = findRecords<Cars24Listing>(res.body ?? '', 'odometer');
       let kept = 0;
       let converted = 0;
+      let offModel = 0;
 
       for (const r of rows) {
         const carName = text(r.carName);
         if (!r.appointmentId || !carName || typeof r.listingPrice !== 'number') continue;
+        /**
+         * The URL addresses a make and nothing narrower, so a model query gets
+         * the make's whole catalogue back: a search for a BMW i8 returned
+         * twenty cars, six X3s and four X5s among them, every one a real BMW
+         * and none of them the car asked for. The record states its own model.
+         */
+        if (wantedModel && !sameName(text(r.model) ?? carName, wantedModel, true)) {
+          offModel += 1;
+          continue;
+        }
         const id = `cars24:${r.appointmentId}`;
         if (out.has(id)) continue;
         const km = typeof r.odometer?.value === 'number' ? r.odometer.value : null;
@@ -256,7 +276,8 @@ export const cars24: SourceAdapter = {
         });
         kept += 1;
       }
-      ctx.log(`cars24 ${String(rows.length).padStart(3)} records, ${kept} kept, ${converted} kilometre readings converted`);
+      const skipped = offModel ? `, ${offModel} not ${wantedModel}` : '';
+      ctx.log(`cars24 ${String(rows.length).padStart(3)} records, ${kept} kept${skipped}, ${converted} kilometre readings converted`);
     } catch (e) {
       ctx.log(`cars24 FAILED: ${(e as Error).message.split('\n')[0]}`);
     }
