@@ -30,3 +30,16 @@ test('a kilometre odometer is converted and a mile one is not', () => {
   assert.equal(odometerMiles({ odometer: '', odometerUnits: 'M' }), null);
   assert.equal(odometerMiles({}), null);
 });
+
+test('a body panel sold by an auction house is not a car', async () => {
+  const { isNonVehicle } = await import('../src/core/normalize.js');
+  // Live, from RM Sotheby's: "Porsche 911 Carrera 2 Coupe (Type 964) Front
+  // Clip" sold for $549 and parsed as a 911, which would drag a 911 median
+  // through the floor. A panel is titled exactly like the car it came off.
+  assert.equal(isNonVehicle('Porsche 911 Carrera 2 Coupe (Type 964) Front Clip'), true);
+  assert.equal(isNonVehicle('1973 Porsche 911 Body Shell'), true);
+  assert.equal(isNonVehicle('Porsche 356 Rolling Shell'), true);
+  // A project car is still a car, however cheap it went.
+  assert.equal(isNonVehicle('1970 Porsche 914'), false);
+  assert.equal(isNonVehicle('1966 Porsche 912 Coupe by Karmann'), false);
+});

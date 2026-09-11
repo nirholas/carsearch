@@ -152,7 +152,7 @@ export function isImpossiblePriceForAge(
  * "BMW i8 Full-Scale Display Model" sold for $2,700 and parsed as an i8, which
  * then dragged the i8 median down by thousands.
  */
-const NON_VEHICLE = /\b(display model|scale model|model car|poster|sign|neon|memorabilia|literature|brochure|manual|toy|pedal car|go.?kart|wheels?|tires?|engine|transmission|parts|seats?|badge|emblem|artwork|painting|print|clock|watch|helmet|jacket)\b/i;
+const NON_VEHICLE = /\b(display model|scale model|model car|poster|sign|neon|memorabilia|literature|brochure|manual|toy|pedal car|go.?kart|wheels?|tires?|engine|transmission|parts|seats?|badge|emblem|artwork|painting|print|clock|watch|helmet|jacket|front clip|rear clip|body ?shell|bare shell|rolling shell|chassis only|body tub|floor ?pan)\b/i;
 
 /**
  * Very low mileages that are advertising copy rather than an odometer reading.
