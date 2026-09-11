@@ -118,14 +118,28 @@ function fingerprint(key: string): string {
  * "718 Cayman" matches "Cayman" and "i3" never matches "i8".
  */
 function sameModel(stated: string | null, name: string, wanted: string): boolean {
-  const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const want = key(wanted);
-  if (!want) return true;
-  if (stated) {
-    const has = key(stated);
-    return has === want || has.startsWith(want) || want.startsWith(has);
-  }
+  if (!wanted.trim()) return true;
+  if (stated) return tokensMatch(stated, wanted);
   return new RegExp(`\\b${wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(name);
+}
+
+/**
+ * Whether two model names describe the same model.
+ *
+ * Compared as token sets rather than by prefix, because a prefix test gets
+ * "718 Cayman" against "Cayman" wrong: the generation number leads, so neither
+ * string starts with the other. Every token of the shorter name must appear in
+ * the longer one, which matches a trim to its model ("i8 Coupe" to "i8") while
+ * still keeping "i3" and "i8" apart.
+ */
+function tokensMatch(a: string, b: string): boolean {
+  const tokens = (v: string) => new Set(v.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  const x = tokens(a);
+  const y = tokens(b);
+  if (x.size === 0 || y.size === 0) return false;
+  const [small, large] = x.size <= y.size ? [x, y] : [y, x];
+  for (const t of small) if (!large.has(t)) return false;
+  return true;
 }
 
 export function jsonLdMarketplace(spec: MarketplaceSpec): SourceAdapter {

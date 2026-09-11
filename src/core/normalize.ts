@@ -268,10 +268,33 @@ export function parseModel(title: string, make: string | null): string | null {
     if (hit) return hit;
   }
 
-  /** Fall back to the word after the make, in the same post-year remainder. */
-  const afterMake = makeLower && stripped.toLowerCase().startsWith(makeLower)
-    ? stripped.slice(makeLower.length).trim()
-    : stripped;
+  /**
+   * When nothing follows the year, read what precedes it.
+   *
+   * Dropping everything up to the year assumes the title reads "2020 Porsche
+   * Taycan", and a large share of the world's listings read the other way round:
+   * PakWheels writes "Porsche Taycan 2020", so the remainder is empty and the
+   * model of every car on the site was lost. This only runs when the post-year
+   * text yielded nothing at all, so the preamble case the stripping exists for
+   * ("Vantage-Specification 1974 Aston Martin V8") is untouched, because there
+   * the post-year text does yield the model.
+   */
+  const body = stripped.trim().length > 0
+    ? stripped
+    : (yearAt ? title.slice(0, yearAt.index!).trim() : stripped);
+
+  if (makeLower && body !== stripped) {
+    const catalogue = loadVocabulary().models[makeLower] ?? [];
+    const hit = [...catalogue]
+      .sort((a, b) => b.length - a.length)
+      .find((m) => new RegExp(`\\b${m.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(body.toLowerCase()));
+    if (hit) return hit;
+  }
+
+  /** Fall back to the word after the make, in the same remainder. */
+  const afterMake = makeLower && body.toLowerCase().startsWith(makeLower)
+    ? body.slice(makeLower.length).trim()
+    : body;
   const token = afterMake.split(/[\s,/]+/).find((w) => w.length > 0 && w.toLowerCase() !== makeLower);
   if (!token) return null;
 

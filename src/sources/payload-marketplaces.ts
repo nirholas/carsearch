@@ -24,13 +24,23 @@ import { parseTransmission } from '../core/facets.js';
  * Benz". With `prefix`, a trim of the model also matches ("i8 Coupe" against
  * "i8"), which is what a model comparison needs and a make comparison does not.
  */
-function sameName(a: string | undefined | null, b: string, prefix = false): boolean {
+function sameName(a: string | undefined | null, b: string, asModel = false): boolean {
   if (a === undefined || a === null) return false;
   const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const x = key(a);
-  const y = key(b);
-  if (x === y) return true;
-  return prefix && (x.startsWith(y) || y.startsWith(x));
+  if (key(a) === key(b)) return true;
+  if (!asModel) return false;
+  /**
+   * A model is compared as a token set, not by prefix. "718 Cayman" against
+   * "Cayman" leads with the generation number, so neither string starts with
+   * the other, while "i3" and "i8" must still stay apart.
+   */
+  const tokens = (v: string) => new Set(v.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  const x = tokens(a);
+  const y = tokens(b);
+  if (x.size === 0 || y.size === 0) return false;
+  const [small, large] = x.size <= y.size ? [x, y] : [y, x];
+  for (const t of small) if (!large.has(t)) return false;
+  return true;
 }
 
 /**

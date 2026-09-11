@@ -53,13 +53,15 @@ test('a connective word is never stored as a model', async () => {
 });
 
 test('a make-only search is bounded by the model each listing states', () => {
+  const tokens = (v: string) => new Set(v.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
   const sameModel = (stated: string | null, name: string, wanted: string) => {
-    const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const want = key(wanted);
-    if (!want) return true;
     if (stated) {
-      const has = key(stated);
-      return has === want || has.startsWith(want) || want.startsWith(has);
+      const x = tokens(stated);
+      const y = tokens(wanted);
+      if (x.size === 0 || y.size === 0) return false;
+      const [small, large] = x.size <= y.size ? [x, y] : [y, x];
+      for (const t of small) if (!large.has(t)) return false;
+      return true;
     }
     return new RegExp(`\\b${wanted}\\b`, 'i').test(name);
   };
