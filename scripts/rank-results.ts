@@ -24,7 +24,7 @@ import type { Listing } from '../src/core/types.js';
  * so `--model i8` left "i8" in the file list and the run died trying to open a
  * file named after the car.
  */
-const VALUED_FLAGS = new Set(['--model', '--limit', '--currency']);
+const VALUED_FLAGS = new Set(['--model', '--limit', '--currency', '--year-min', '--year-max', '--mileage-max', '--price-max', '--price-kind']);
 const files: string[] = [];
 for (let i = 2; i < process.argv.length; i += 1) {
   const arg = process.argv[i]!;
@@ -49,6 +49,35 @@ const limit = Number(flag('limit') ?? 25);
  */
 const wantedCurrency = flag('currency')?.toUpperCase();
 
+/**
+ * The crawl's own year and mileage arguments are hints to each SOURCE, not a
+ * filter over the result. Several sites ignore them, and a source with no such
+ * parameter at all returns its whole catalogue, so a "2019 and newer, under
+ * 60,000 miles" crawl comes back with 200,000-mile salvage lots in it. The
+ * constraints have to be applied here as well, to the rows.
+ */
+const yearMin = flag('year-min') ? Number(flag('year-min')) : undefined;
+const yearMax = flag('year-max') ? Number(flag('year-max')) : undefined;
+const mileageMax = flag('mileage-max') ? Number(flag('mileage-max')) : undefined;
+const priceMax = flag('price-max') ? Number(flag('price-max')) : undefined;
+const priceKind = flag('price-kind');
+
+/**
+ * A row satisfies a constraint only by stating a value that meets it.
+ *
+ * An unknown mileage is not "under 60,000 miles", and treating it as passing is
+ * how a Copart lot with no odometer reading reaches the top of a low-mileage
+ * search. Silence fails a filter the caller explicitly asked for.
+ */
+function withinLimits(l: Listing): boolean {
+  if (priceKind && l.priceKind !== priceKind) return false;
+  if (yearMin !== undefined && (l.year === null || l.year < yearMin)) return false;
+  if (yearMax !== undefined && (l.year === null || l.year > yearMax)) return false;
+  if (mileageMax !== undefined && (l.mileage === null || l.mileage > mileageMax)) return false;
+  if (priceMax !== undefined && (l.price === null || l.price > priceMax)) return false;
+  return true;
+}
+
 const NAME = new Map(SOURCES.map((s) => [s.id, s.name]));
 const rows: Listing[] = files.flatMap((f) => JSON.parse(readFileSync(f, 'utf8')) as Listing[]);
 const groups = dedupe(rows);
@@ -67,6 +96,7 @@ function isModel(l: Listing): boolean {
 const ranked = groups
   .filter((g) => g.primary.price !== null && isModel(g.primary))
   .filter((g) => !wantedCurrency || (g.primary.currency ?? 'USD').toUpperCase() === wantedCurrency)
+  .filter((g) => withinLimits(g.primary))
   .sort((a, b) => low(a.members) - low(b.members));
 
 function low(members: Listing[]): number {
