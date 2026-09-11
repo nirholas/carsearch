@@ -102,7 +102,12 @@ export const SOURCES: Source[] = [
   s({ id: 'driveway', name: 'Driveway (Lithia)', homepage: 'https://www.driveway.com', category: 'dealer-group' }),
   s({ id: 'clicklane', name: 'Clicklane (Asbury)', homepage: 'https://www.clicklane.com', category: 'dealer-group' }),
   s({ id: 'acceleride', name: 'AcceleRide (Group 1)', homepage: 'https://www.acceleride.com', category: 'dealer-group' }),
-  s({ id: 'hertzcarsales', name: 'Hertz Car Sales', homepage: 'https://www.hertzcarsales.com', category: 'retailer', notes: 'Rental defleet.' }),
+  s({ id: 'lithia', name: 'Lithia Motors', homepage: 'https://www.lithia.com', status: 'live', transport: 'tls', access: 'payload', category: 'dealer-group', countries: ['US'],
+    notes: 'Wired 2026-09-11 through the same dealer.com widget API as Hertz. 40,995 used cars, the largest single catalogue in the index: Lithia is one of the biggest dealer groups in the US and its stores span every franchise, so the inventory is not concentrated in one brand.',
+  }),
+  s({ id: 'hertzcarsales', name: 'Hertz Car Sales', homepage: 'https://www.hertzcarsales.com', status: 'live', transport: 'tls', access: 'payload', category: 'retailer', countries: ['US'],
+    notes: 'Wired 2026-09-11 through the dealer.com widget API (POST /api/widget/ws-inv-data/getInventory), which every DDC storefront shares. 6,450 cars, fully typed: VIN, trim, odometer, drivetrain, colour, MPG. Paginate with inventoryParameters.start; top-level start, preferences.start, preferences.offset and pageNum all answer 200 with page one again.',
+  }),
   s({ id: 'enterprisecarsales', name: 'Enterprise Car Sales', homepage: 'https://www.enterprisecarsales.com', category: 'retailer', notes: 'Rental defleet.' }),
 
   // ---------------------------------------------------------------------------
