@@ -49,6 +49,23 @@ export function mileageFrom(text: string): number | null {
 }
 
 /**
+ * A mileage that is really the model year, or null.
+ *
+ * One importer's listing template fills the odometer line from the year field:
+ * a 2002 Mitsubishi Minicab reads "Odometer reading: 2002 miles, verified
+ * against Japanese inspection records", and a 1999 one reads 1,999. The parser
+ * is right about the sentence and the sentence is wrong. A kei truck twenty-five
+ * years old with its own model year on the clock is not a thing that happens,
+ * so a reading equal to the year is discarded rather than ranked as the
+ * lowest-mileage truck in the country.
+ */
+export function trustedMileage(miles: number | null, year: number | null): number | null {
+  if (miles === null) return null;
+  if (year !== null && miles === year) return null;
+  return miles;
+}
+
+/**
  * Whether a shop product is a vehicle rather than a part or a deposit.
  *
  * An importer's catalogue is mostly parts, and parts are titled with the truck
@@ -160,7 +177,7 @@ export function shopifyStore(spec: StorefrontSpec): SourceAdapter {
           if (!matchesQuery(query, make, model, title)) continue;
 
           const locationTag = tags.find((t) => /^location_/i.test(t))?.replace(/^location_/i, '');
-          const miles = mileageFrom(`${title} ${body}`);
+          const miles = trustedMileage(mileageFrom(`${title} ${body}`), parseYear(title));
           const id = `${spec.id}:${p.id}`;
           out.set(id, {
             id,
@@ -275,7 +292,8 @@ export function wooStore(spec: StorefrontSpec): SourceAdapter {
           if (!matchesQuery(query, make, model, `${title} ${model ?? ''}`)) continue;
 
           const text = `${title} ${strip(p.short_description)} ${strip(p.description)}`;
-          const miles = mileageFrom(`${attr(/mileage|odometer|kilomet/i) ?? ''} ${text}`);
+          const year = statedYear > 1900 ? statedYear : parseYear(title);
+          const miles = trustedMileage(mileageFrom(`${attr(/mileage|odometer|kilomet/i) ?? ''} ${text}`), year);
           const id = `${spec.id}:${p.id}`;
           out.set(id, {
             id,
@@ -283,7 +301,7 @@ export function wooStore(spec: StorefrontSpec): SourceAdapter {
             sourceListingId: String(p.id),
             url: p.permalink ?? spec.host,
             title,
-            year: statedYear > 1900 ? statedYear : parseYear(title),
+            year,
             make,
             model,
             trim: null,

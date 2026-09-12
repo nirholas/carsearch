@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mileageFrom, isVehicleProduct, matchesQuery } from '../src/sources/storefronts.js';
+import { mileageFrom, isVehicleProduct, matchesQuery, trustedMileage } from '../src/sources/storefronts.js';
 
 /**
  * Specialist importers sell kei trucks on ordinary shop software, next to the
@@ -47,4 +47,12 @@ test('a pre-order deposit named like a truck is not a truck for sale', () => {
   assert.equal(isVehicleProduct('Pre-Order: 2025 Suzuki Carry', 'Truck', 3000), false);
   // The same truck without the pre-order marker is a listing.
   assert.equal(isVehicleProduct('2000 Suzuki Carry 4WD', 'Vehicle', 3200, 'https://jpmminitrucks.com/product/2000-suzuki-carry-4wd/'), true);
+});
+
+test('an odometer that reads the model year is not a mileage', () => {
+  // Live: "Odometer reading: 2002 miles" on a 2002 Mitsubishi Minicab, because
+  // the importer's template filled the odometer from the year field.
+  assert.equal(trustedMileage(mileageFrom('Odometer reading: 2002 miles'), 2002), null);
+  assert.equal(trustedMileage(38472, 1997), 38472);
+  assert.equal(trustedMileage(null, 1997), null);
 });
