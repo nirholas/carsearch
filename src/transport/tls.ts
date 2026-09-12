@@ -138,6 +138,30 @@ export async function fetchWithTls(
   request: TlsRequest = {},
   clientOpts: Partial<ImpitOptions> = {},
 ): Promise<TlsResponse> {
+  /**
+   * Hold the event loop open for the duration of the request.
+   *
+   * impit does its work in native code and registers no libuv handle, so Node
+   * sees an empty loop and exits while the fetch is still in flight. A script
+   * whose first await is one of these prints nothing, exits zero, and reports
+   * "unsettled top-level await": a sweep of forty-three sources produced one
+   * line that way and looked like the sites had failed rather than the runtime.
+   * The timer is per call and always cleared, so it cannot itself keep a
+   * finished process alive.
+   */
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    return await fetchWithTlsInner(url, request, clientOpts);
+  } finally {
+    clearInterval(keepAlive);
+  }
+}
+
+async function fetchWithTlsInner(
+  url: string,
+  request: TlsRequest,
+  clientOpts: Partial<ImpitOptions>,
+): Promise<TlsResponse> {
   const host = new URL(url).hostname;
   const known = winners.get(host);
   const order = known ? [known, ...PROFILES.filter((p) => p !== known)] : PROFILES;

@@ -180,6 +180,8 @@ export interface CapturedResponse {
   bytes: number;
   /** The request body, for the POST search APIs where the query lives there. */
   request?: string;
+  /** Request headers worth knowing about, such as an API key. */
+  requestHeaders?: Record<string, string>;
 }
 
 /**
@@ -196,6 +198,16 @@ export interface CapturedResponse {
  * with devtools. Point it at a search page, read what comes back, and write the
  * adapter against the endpoint directly.
  */
+/**
+ * Headers every browser request carries, which say nothing about the endpoint.
+ */
+const BORING_HEADERS = new Set([
+  'accept', 'accept-encoding', 'accept-language', 'cache-control', 'connection',
+  'content-length', 'content-type', 'host', 'origin', 'pragma', 'referer',
+  'user-agent', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site', 'sec-ch-ua',
+  'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'priority', 'dnt', 'cookie',
+]);
+
 export async function captureJson(
   url: string,
   opts: EvaluateOptions & { minBytes?: number } = {},
@@ -228,6 +240,18 @@ export async function captureJson(
              * and unusable.
              */
             request: res.request().postData() ?? undefined,
+            /**
+             * The request headers, minus the ones every request carries.
+             *
+             * An endpoint can be fully understood and still unusable: the Cars
+             * Commerce listings API answers 401 "No API key found in request"
+             * to a correctly shaped POST, because the key travels in a header
+             * the response never mentions. The body says what was asked; the
+             * headers say what was needed to ask it.
+             */
+            requestHeaders: Object.fromEntries(
+              Object.entries(res.request().headers()).filter(([k]) => !BORING_HEADERS.has(k.toLowerCase())),
+            ),
           });
         } catch {
           /* a content-type that lied; not worth reporting */

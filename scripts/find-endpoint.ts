@@ -59,4 +59,8 @@ for (const r of responses) {
   if (!r.request) continue;
   console.log(`\nrequest to ${r.url.split('?')[0]}`);
   console.log(r.request.slice(0, 4000));
+  const headers = Object.entries(r.requestHeaders ?? {});
+  if (headers.length) {
+    console.log('  headers:', headers.map(([k, v]) => `${k}: ${v.slice(0, 80)}`).join('\n           '));
+  }
 }
