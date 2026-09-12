@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { SourceAdapter, SearchQuery } from '../core/types.js';
 import { makeListing, type ListingDraft } from '../core/listing.js';
 import { getSource } from './registry.js';
@@ -32,12 +33,65 @@ const METROS = [
   'washingtondc', 'detroit', 'minneapolis', 'portland', 'lasvegas', 'austin',
 ];
 
+/**
+ * Every Craigslist site in California, by region name as a caller would pass it.
+ *
+ * The national default reaches the eight largest US metros, which is exactly two
+ * California sites. A buyer shopping the state wants all twenty-eight, and a kei
+ * truck is precisely the kind of vehicle that is listed in Chico or Merced
+ * rather than in Los Angeles.
+ */
+export const REGION_METROS: Record<string, string[]> = {
+  CA: [
+    'losangeles', 'sfbay', 'sandiego', 'orangecounty', 'inlandempire', 'sacramento',
+    'fresno', 'bakersfield', 'ventura', 'santabarbara', 'santamaria', 'slo', 'monterey',
+    'stockton', 'modesto', 'merced', 'visalia', 'hanford', 'goldcountry', 'chico',
+    'redding', 'humboldt', 'mendocino', 'yubasutta', 'susanville', 'siskiyou',
+    'palmsprings', 'imperial',
+  ],
+};
+
 /** Metros queried per run. The whole list is a lot of requests for one search. */
 const DEFAULT_METRO_LIMIT = 8;
 
-function searchUrl(metro: string, query: SearchQuery, model?: string): string {
+/** Resolves a caller's regions to metro subdomains: a state code expands, a subdomain passes through. */
+export function metrosFor(regions: string[] | undefined): string[] {
+  if (!regions?.length) return METROS.slice(0, DEFAULT_METRO_LIMIT);
+  return [...new Set(regions.flatMap((r) => REGION_METROS[r.toUpperCase()] ?? [r.toLowerCase()]))];
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' };
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+    if (e[0] === '#') return String.fromCodePoint(e[1]?.toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : Number(e.slice(1)));
+    return ENTITIES[e.toLowerCase()] ?? m;
+  });
+}
+
+/**
+ * The real listing URL for each title on a results page.
+ *
+ * The ItemList carries no per-item link, and the adapter used to fill the gap
+ * with a search for the title, which sends a buyer to a results page that may
+ * no longer contain the car. The static result list the page ships for
+ * non-JavaScript clients does carry the link, in the same order and under the
+ * same title, so the two are joined here. Titles can repeat, so each maps to a
+ * queue of links consumed in order.
+ */
+export function listingLinks(html: string): Map<string, string[]> {
+  const links = new Map<string, string[]>();
+  for (const m of html.matchAll(/<li class="cl-static-search-result"[^>]*title="([^"]*)"[\s\S]*?<a href="([^"]+)"/g)) {
+    const title = decodeEntities(m[1] ?? '').trim();
+    const href = m[2];
+    if (!title || !href) continue;
+    links.set(title, [...(links.get(title) ?? []), href]);
+  }
+  return links;
+}
+
+function searchUrl(metro: string, query: SearchQuery, term?: string): string {
   const p = new URLSearchParams();
-  const terms = [query.make, model].filter(Boolean).join(' ');
+  const terms = query.make ? [query.make, term].filter(Boolean).join(' ') : (term ?? '');
   if (terms) p.set('query', terms);
   p.set('hasPic', '1');
   // Craigslist's own numeric filters, so a national sweep is not filtered in memory.
@@ -55,11 +109,18 @@ export const craigslist: SourceAdapter = {
 
   async search(query, ctx) {
     const out = new Map<string, ListingDraft>();
-    const models = query.models?.length ? query.models : [undefined];
-    const metros = METROS.slice(0, DEFAULT_METRO_LIMIT);
+    /**
+     * With a make, each model is a query. Without one, the keywords are: a buyer
+     * looking for "kei truck" or "mini truck" is describing a segment rather
+     * than a badge, and sellers title their posts the same way.
+     */
+    const terms: (string | undefined)[] = query.make
+      ? (query.models?.length ? query.models : [undefined])
+      : (query.keywords ? query.keywords.split('|').map((k) => k.trim()).filter(Boolean) : [undefined]);
+    const metros = metrosFor(query.regions);
 
     for (const metro of metros) {
-      for (const model of models) {
+      for (const model of terms) {
         const url = searchUrl(metro, query, model);
         try {
           const res = await fetchWithTls(url);
@@ -69,6 +130,7 @@ export const craigslist: SourceAdapter = {
           }
 
           const items = itemListEntries(extractJsonLd(res.body));
+          const links = listingLinks(res.body);
           let kept = 0;
           let offTopic = 0;
 
@@ -99,8 +161,12 @@ export const craigslist: SourceAdapter = {
              * it, which is the behaviour we want.
              */
             const image = firstImage(item);
-            const key = `${metro}:${title}:${price}:${image ?? ''}`;
-            const id = `craigslist:${Buffer.from(key).toString('base64url').slice(0, 40)}`;
+            const link = links.get(title.trim())?.shift() ?? null;
+            // The posting id in the link is the listing's own identity, and it is
+            // what collapses a truck that turns up in several neighbouring metros.
+            const postingId = link?.match(/\/([A-Za-z0-9]{10,})(?:\.html)?$/)?.[1] ?? null;
+            const key = postingId ?? `${metro}:${title}:${price}:${image ?? ''}`;
+            const id = `craigslist:${createHash('sha1').update(key).digest('base64url').slice(0, 22)}`;
             if (out.has(id)) continue;
 
             const make = parseMake(title) ?? query.make ?? null;
@@ -120,8 +186,8 @@ export const craigslist: SourceAdapter = {
             const draft: ListingDraft = {
               id,
               sourceId: 'craigslist',
-              sourceListingId: null,
-              url: `https://${metro}.craigslist.org/search/cta?query=${encodeURIComponent(title)}`,
+              sourceListingId: postingId,
+              url: link ?? `https://${metro}.craigslist.org/search/cta?query=${encodeURIComponent(title)}`,
               title,
               year: parseYear(title),
               make,

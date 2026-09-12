@@ -29,6 +29,8 @@ const query: SearchQuery = {
   priceMax: args.get('priceMax') ? Number(args.get('priceMax')) : undefined,
   mileageMax: args.get('mileageMax') ? Number(args.get('mileageMax')) : undefined,
   zip: args.get('zip') ?? undefined,
+  keywords: args.get('keywords') ?? undefined,
+  regions: args.get('regions') ? args.get('regions')!.split(',') : undefined,
   radius: args.get('radius') ? Number(args.get('radius')) : undefined,
 };
 

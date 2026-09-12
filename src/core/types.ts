@@ -244,6 +244,13 @@ export interface SearchQuery {
   fuelType?: string;
   /** Free text, used by sources that support it and by the natural-language layer. */
   keywords?: string;
+  /**
+   * Regional shards to query, for sources that are split by region rather
+   * than searchable nationally. Craigslist is the case that needs it: a buyer
+   * in California wants every California site, and the national default of the
+   * eight largest US metros reaches exactly two of them.
+   */
+  regions?: string[];
   /** Restrict to these source ids. Empty or absent means every live source. */
   sourceIds?: string[];
   priceKinds?: PriceKind[];

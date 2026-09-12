@@ -111,19 +111,19 @@ const SEED: Vocabulary = {
     porsche: ['911', 'Macan', 'Cayenne', 'Panamera', 'Taycan', 'Boxster', 'Cayman', '718 Cayman', '718 Boxster'],
     'mercedes-benz': ['G-Class', 'C-Class', 'E-Class', 'S-Class', 'GLE', 'GLC', 'GLS', 'CLA', 'SL', 'AMG GT'],
     bmw: ['3 Series', '5 Series', '7 Series', 'M3', 'M5', 'X3', 'X5', 'X7', 'i8', 'i4', 'iX', 'Z4'],
-    toyota: ['Camry', 'Corolla', 'RAV4', 'Highlander', 'Tacoma', 'Tundra', '4Runner', 'Land Cruiser', 'Supra', 'Prius'],
-    honda: ['Civic', 'Accord', 'CR-V', 'Pilot', 'Odyssey', 'HR-V', 'Ridgeline', 'Acty', 'Vamos', 'Beat'],
+    toyota: ['Camry', 'Corolla', 'RAV4', 'Highlander', 'Tacoma', 'Tundra', '4Runner', 'Land Cruiser', 'Supra', 'Prius', 'Pixis Truck', 'Pixis Van'],
+    honda: ['Civic', 'Accord', 'CR-V', 'Pilot', 'Odyssey', 'HR-V', 'Ridgeline', 'Acty', 'Acty Truck', 'TN360', 'TN-V', 'T360', 'Vamos', 'Street', 'Beat'],
     ford: ['F-150', 'Mustang', 'Bronco', 'Explorer', 'Escape', 'Ranger', 'Maverick'],
     chevrolet: ['Corvette', 'Camaro', 'Silverado', 'Tahoe', 'Suburban', 'Blazer', 'Colorado'],
     tesla: ['Model 3', 'Model Y', 'Model S', 'Model X', 'Cybertruck'],
     jeep: ['Wrangler', 'Grand Cherokee', 'Cherokee', 'Gladiator', 'Compass'],
-    subaru: ['WRX', 'BRZ', 'Outback', 'Forester', 'Crosstrek', 'Ascent', 'Sambar'],
+    subaru: ['WRX', 'BRZ', 'Outback', 'Forester', 'Crosstrek', 'Ascent', 'Sambar', 'Sambar Truck', 'Dias'],
     'land rover': ['Defender', 'Range Rover', 'Range Rover Sport', 'Discovery', 'Evoque'],
-    nissan: ['GT-R', '370Z', '350Z', 'Altima', 'Rogue', 'Frontier', 'Titan'],
-    mazda: ['MX-5 Miata', 'CX-5', 'CX-9', 'Mazda3', 'RX-7', 'RX-8', 'Scrum', 'Porter'],
+    nissan: ['GT-R', '370Z', '350Z', 'Altima', 'Rogue', 'Frontier', 'Titan', 'Clipper', 'NT100 Clipper', 'NV100 Clipper'],
+    mazda: ['MX-5 Miata', 'CX-5', 'CX-9', 'Mazda3', 'RX-7', 'RX-8', 'Scrum', 'Scrum Truck', 'Porter', 'Porter Cab', 'Autozam Scrum'],
     audi: ['A4', 'A6', 'Q5', 'Q7', 'RS3', 'RS5', 'R8', 'e-tron', 'TT'],
     lexus: ['RX', 'NX', 'GX', 'LX', 'IS', 'ES', 'LC', 'LS'],
-    mitsubishi: ['Minicab', 'Lancer', 'Outlander', 'Eclipse', 'Delica'],
+    mitsubishi: ['Minicab', 'Minicab Truck', 'Town Box', 'Lancer', 'Outlander', 'Eclipse', 'Delica'],
 
     /**
      * Kei trucks and vans, which vPIC does not carry at all.
@@ -133,13 +133,17 @@ const SEED: Vocabulary = {
      * rule, one container at a time. So a search for a Daihatsu Hijet matched
      * nothing, not because the index held none but because the vocabulary had
      * no word for it, and every listing that did come through was stored with
-     * a null model. An entire and fast-growing segment was invisible.
+     * a null model.
      *
-     * Daihatsu is added as a make for the same reason: it left the US market in
-     * 1992, so vPIC barely knows it exists.
+     * The segment is badge-engineered to an unusual degree, which is why the
+     * list is long. Suzuki builds the Carry and sells it as the Mazda Scrum, the
+     * Nissan Clipper and, since 2014, the Mitsubishi Minicab; Daihatsu builds
+     * the Hijet and sells it as the Toyota Pixis and, since 2012, the Subaru
+     * Sambar. A buyer searching one name is searching for the same truck under
+     * four badges, and a vocabulary missing any of them loses those listings.
      */
-    suzuki: ['Carry', 'Every', 'Jimny', 'Cappuccino', 'Alto', 'Wagon R'],
-    daihatsu: ['Hijet', 'Midget', 'Atrai', 'Mira', 'Copen', 'Rocky'],
+    suzuki: ['Carry', 'Super Carry', 'Carry Truck', 'Every', 'Jimny', 'Cappuccino', 'Alto', 'Wagon R', 'Mighty Boy'],
+    daihatsu: ['Hijet', 'Hijet Truck', 'Hijet Jumbo', 'Hijet Deck Van', 'Midget', 'Midget II', 'Atrai', 'Mira', 'Copen', 'Rocky'],
   },
 };
 
