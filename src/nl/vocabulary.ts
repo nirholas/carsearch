@@ -100,6 +100,7 @@ export const NICKNAMES: Record<string, { make: string; model?: string }> = {
 const SEED: Vocabulary = {
   makes: [
     'acura', 'alfa romeo', 'aston martin', 'audi', 'bentley', 'bmw', 'buick', 'cadillac', 'chevrolet',
+    'daihatsu',
     'chrysler', 'dodge', 'ferrari', 'fiat', 'ford', 'genesis', 'gmc', 'honda', 'hyundai', 'infiniti',
     'jaguar', 'jeep', 'kia', 'lamborghini', 'land rover', 'lexus', 'lincoln', 'lotus', 'lucid',
     'maserati', 'mazda', 'mclaren', 'mercedes-benz', 'mini', 'mitsubishi', 'nissan', 'polestar',
@@ -111,17 +112,34 @@ const SEED: Vocabulary = {
     'mercedes-benz': ['G-Class', 'C-Class', 'E-Class', 'S-Class', 'GLE', 'GLC', 'GLS', 'CLA', 'SL', 'AMG GT'],
     bmw: ['3 Series', '5 Series', '7 Series', 'M3', 'M5', 'X3', 'X5', 'X7', 'i8', 'i4', 'iX', 'Z4'],
     toyota: ['Camry', 'Corolla', 'RAV4', 'Highlander', 'Tacoma', 'Tundra', '4Runner', 'Land Cruiser', 'Supra', 'Prius'],
-    honda: ['Civic', 'Accord', 'CR-V', 'Pilot', 'Odyssey', 'HR-V', 'Ridgeline'],
+    honda: ['Civic', 'Accord', 'CR-V', 'Pilot', 'Odyssey', 'HR-V', 'Ridgeline', 'Acty', 'Vamos', 'Beat'],
     ford: ['F-150', 'Mustang', 'Bronco', 'Explorer', 'Escape', 'Ranger', 'Maverick'],
     chevrolet: ['Corvette', 'Camaro', 'Silverado', 'Tahoe', 'Suburban', 'Blazer', 'Colorado'],
     tesla: ['Model 3', 'Model Y', 'Model S', 'Model X', 'Cybertruck'],
     jeep: ['Wrangler', 'Grand Cherokee', 'Cherokee', 'Gladiator', 'Compass'],
-    subaru: ['WRX', 'BRZ', 'Outback', 'Forester', 'Crosstrek', 'Ascent'],
+    subaru: ['WRX', 'BRZ', 'Outback', 'Forester', 'Crosstrek', 'Ascent', 'Sambar'],
     'land rover': ['Defender', 'Range Rover', 'Range Rover Sport', 'Discovery', 'Evoque'],
     nissan: ['GT-R', '370Z', '350Z', 'Altima', 'Rogue', 'Frontier', 'Titan'],
-    mazda: ['MX-5 Miata', 'CX-5', 'CX-9', 'Mazda3', 'RX-7', 'RX-8'],
+    mazda: ['MX-5 Miata', 'CX-5', 'CX-9', 'Mazda3', 'RX-7', 'RX-8', 'Scrum', 'Porter'],
     audi: ['A4', 'A6', 'Q5', 'Q7', 'RS3', 'RS5', 'R8', 'e-tron', 'TT'],
     lexus: ['RX', 'NX', 'GX', 'LX', 'IS', 'ES', 'LC', 'LS'],
+    mitsubishi: ['Minicab', 'Lancer', 'Outlander', 'Eclipse', 'Delica'],
+
+    /**
+     * Kei trucks and vans, which vPIC does not carry at all.
+     *
+     * The government catalogue lists what was sold new in the United States,
+     * and none of these were: they arrive under the twenty-five year import
+     * rule, one container at a time. So a search for a Daihatsu Hijet matched
+     * nothing, not because the index held none but because the vocabulary had
+     * no word for it, and every listing that did come through was stored with
+     * a null model. An entire and fast-growing segment was invisible.
+     *
+     * Daihatsu is added as a make for the same reason: it left the US market in
+     * 1992, so vPIC barely knows it exists.
+     */
+    suzuki: ['Carry', 'Every', 'Jimny', 'Cappuccino', 'Alto', 'Wagon R'],
+    daihatsu: ['Hijet', 'Midget', 'Atrai', 'Mira', 'Copen', 'Rocky'],
   },
 };
 
