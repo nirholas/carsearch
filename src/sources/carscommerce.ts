@@ -176,6 +176,52 @@ export interface CarsCommerceSpec {
   account?: string;
 }
 
+/**
+ * The condition labels this account files its used cars under.
+ *
+ * The vocabulary is per-account, not per-platform, which is the trap here. Ken
+ * Garff uses "Pre-Owned" and "Certified Pre-Owned"; West Herr uses "Used" and
+ * "Certified Used". A hardcoded filter therefore does not fail, it returns zero
+ * and reads as a dealer group with no used inventory: three groups holding 4,968
+ * used cars between them were dismissed that way.
+ *
+ * So the account is asked what its own labels are, and everything that is not
+ * new is kept. That also survives a label this code has never seen.
+ */
+async function usedTypeSlugs(
+  credentials: Credentials,
+  log: (m: string) => void,
+  id: string,
+): Promise<string[]> {
+  try {
+    const res = await fetch(`https://${SEARCH_HOST}/api/v1/listings/${credentials.account}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': credentials.apiKey },
+      body: JSON.stringify({
+        page: 1,
+        perPage: 1,
+        filters: { status: ['publish', 'modified', 'pend-sale'] },
+        facets: ['type_slug'],
+        requestedFields: ['vin'],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) return [];
+
+    const body = (await res.json()) as {
+      data?: { facets?: { name?: string; values?: { key?: string; doc_count?: number }[] }[] };
+    };
+    const values = body.data?.facets?.find((f) => f.name === 'type_slug')?.values ?? [];
+    const used = values
+      .filter((v) => v.key && !/^new$/i.test(v.key) && (v.doc_count ?? 0) > 0)
+      .map((v) => v.key!);
+    if (used.length) log(`${id}: used stock filed under ${used.join(', ')}`);
+    return used;
+  } catch {
+    return [];
+  }
+}
+
 export function carsCommerce(spec: CarsCommerceSpec): SourceAdapter {
   return {
     source: getSource(spec.id)!,
@@ -193,10 +239,14 @@ export function carsCommerce(spec: CarsCommerceSpec): SourceAdapter {
 
       const now = new Date().toISOString();
       const out = new Map<string, ListingDraft>();
-      const facetFilters: Record<string, string[]> = {
-        // Used only. A new-car price is not a comparable for a used one.
-        type_slug: ['Pre-Owned', 'Certified Pre-Owned'],
-      };
+
+      const usedTypes = await usedTypeSlugs(credentials, ctx.log, spec.id);
+      if (usedTypes.length === 0) {
+        ctx.log(`${spec.id}: no used stock`);
+        return [];
+      }
+      // Used only. A new-car price is not a comparable for a used one.
+      const facetFilters: Record<string, string[]> = { type_slug: usedTypes };
       if (query.make) facetFilters.make = [query.make];
       if (query.models?.length) facetFilters.model = query.models;
 
@@ -321,9 +371,28 @@ export const kengarff = carsCommerce({ id: 'kengarff', host: 'https://www.kengar
 /**
  * A second account reached with the first one's key and no page load at all,
  * which is the proof that the platform rather than the site is what was wired.
+ *
+ * Note what is NOT worth adding. A group's listings name 66 sibling `feed_ccid`
+ * accounts, one per rooftop, and eight of those answer with used stock of their
+ * own. Wiring them would double count: the parent account already aggregates
+ * every rooftop, which is how Ken Garff reports 5,711 cars from stores that
+ * individually hold a few dozen. The accounts worth finding are other parents,
+ * and those need a page load each.
  */
 export const bmwcamarillo = carsCommerce({
   id: 'bmwcamarillo',
   host: 'https://www.bmwofcamarillo.com',
   account: '6063909',
 });
+
+/**
+ * Three more groups, each found by one page load and then reached by id.
+ *
+ * All three file their used stock under "Used" and "Certified Used" rather than
+ * Ken Garff's "Pre-Owned", which is why the condition filter is read from the
+ * account rather than written here.
+ */
+export const westherr = carsCommerce({ id: 'westherr', host: 'https://www.westherr.com', account: '5394588' });
+export const germain = carsCommerce({ id: 'germain', host: 'https://www.germaincars.com', account: '5386274' });
+export const walser = carsCommerce({ id: 'walser', host: 'https://www.walser.com', account: '5386294' });
+export const kellyauto = carsCommerce({ id: 'kellyauto', host: 'https://www.kellyauto.com', account: '1317' });
