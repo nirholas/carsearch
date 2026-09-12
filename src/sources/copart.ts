@@ -121,6 +121,19 @@ function termsFor(query: SearchQuery): string[] {
   return [query.make ?? '*'];
 }
 
+/**
+ * How deep to walk one search term, at 100 lots a page.
+ *
+ * This was the literal `[0, 1]`, so 200 lots, and Copart is the only source in
+ * the index besides IAAI that publishes a title brand on every lot. Capping the
+ * one source that answers the question this index exists to ask meant a
+ * nationwide salvage search reported a ceiling it had invented.
+ *
+ * A ceiling, not an expectation: the loop below exits on an empty page, on a
+ * short page, and on a page that adds no lot not already held.
+ */
+const MAX_PAGES = 40;
+
 export const copart: SourceAdapter = {
   source: getSource('copart')!,
 
@@ -128,7 +141,7 @@ export const copart: SourceAdapter = {
     const out = new Map<string, ListingDraft>();
 
     for (const term of termsFor(query)) {
-      for (const page of [0, 1]) {
+      for (let page = 0; page < MAX_PAGES; page += 1) {
         try {
           const res = await fetchWithTls(ENDPOINT, {
             method: 'POST',
@@ -205,6 +218,9 @@ export const copart: SourceAdapter = {
             kept += 1;
           }
           ctx.log(`copart ${term.padEnd(20)} p${page} ${String(lots.length).padStart(3)} lots, ${kept} kept (pool ${out.size})`);
+          // A pager that re-serves its last page rather than emptying would
+          // otherwise spin to the ceiling adding nothing.
+          if (kept === 0) break;
           if (lots.length < 100) break;
         } catch (e) {
           ctx.log(`copart "${term}" FAILED: ${(e as Error).message.split('\n')[0]}`);

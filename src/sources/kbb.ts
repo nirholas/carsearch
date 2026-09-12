@@ -210,6 +210,23 @@ export function sameMake(a: string | undefined, b: string): boolean {
 
 const PAGE_SIZE = 100;
 
+/**
+ * How deep to walk one query.
+ *
+ * This was the literal `3` in the page loop below, which is 300 records, and
+ * KBB is the largest catalogue the index reaches: its own results header reads
+ * "10,674 Matches" for a nationwide Macan search. Three pages of it is 2.8% of
+ * the inventory, and the 97% left behind is not a random sample, because the
+ * default sort is relevance rather than price. The cheap cars are exactly the
+ * ones that sort last, so the floor this source reported was an artifact of
+ * where the loop stopped rather than a fact about the market.
+ *
+ * A ceiling, not an expectation. The loop already exits on the first page that
+ * adds no new car and on any short page, so a model with forty cars still costs
+ * one request. This only has to be larger than the biggest real catalogue.
+ */
+const MAX_PAGES = 150;
+
 /** Pulls the whole search response out of the Next.js page payload. */
 export function inventoryFrom(html: string): KbbRecord[] {
   const m = html.match(/<script id="__NEXT_DATA__" type="application\/json"[^>]*>([\s\S]*?)<\/script>/);
@@ -225,7 +242,7 @@ export function inventoryFrom(html: string): KbbRecord[] {
   return inv ? Object.values(inv) : [];
 }
 
-function url(query: SearchQuery, model: string | undefined, firstRecord: number): string {
+function url(query: SearchQuery, model: string | undefined, firstRecord: number, band?: Band): string {
   const path = [slug(query.make ?? ''), model ? slug(model) : ''].filter(Boolean).join('/');
   const params = new URLSearchParams({ numRecords: String(PAGE_SIZE), firstRecord: String(firstRecord) });
   if (query.zip) params.set('zip', query.zip);
@@ -244,9 +261,70 @@ function url(query: SearchQuery, model: string | undefined, firstRecord: number)
    */
   if (query.yearMin) params.set('startYear', String(query.yearMin));
   if (query.yearMax) params.set('endYear', String(query.yearMax));
-  if (query.priceMax) params.set('priceMax', String(query.priceMax));
+  /**
+   * `maxPrice`/`minPrice`, not `priceMax`/`priceMin`.
+   *
+   * The same trap as the year names above, and this one was live: `priceMax`
+   * is not rejected, it is ignored. Measured on the same Macan query,
+   * `priceMax=35000` returns the unfiltered 4,604 matches while
+   * `maxPrice=35000` returns 154. Every price-capped KBB search ever run by
+   * this adapter was therefore an uncapped one.
+   */
+  const lo = band ? band[0] : query.priceMin;
+  const hi = band ? band[1] : query.priceMax;
+  if (lo) params.set('minPrice', String(lo));
+  if (hi) params.set('maxPrice', String(hi));
   if (query.mileageMax) params.set('maxMileage', String(query.mileageMax));
   return `https://www.kbb.com/cars-for-sale/used/${path}?${params}`;
+}
+
+/** A price slice, in dollars. `null` for the top band means no upper bound. */
+type Band = [number, number | null];
+
+/**
+ * How many records KBB will actually page through before it starts lying.
+ *
+ * Past roughly this depth `firstRecord` stops advancing and the site re-serves
+ * the top of the result set instead of erroring. Measured: `firstRecord=200`
+ * shares 13 of 125 records with page zero, while `firstRecord=500` shares 113
+ * and `firstRecord=1000` shares 112. So a deep walk of a big result set is not
+ * slow, it is fictional: one Macan run fetched 5,507 on-make records and held
+ * 481 distinct ones, because every page past the fourth was a re-run of the
+ * first.
+ *
+ * Raising MAX_PAGES cannot fix that. The only way to reach the whole catalogue
+ * is to ask smaller questions, which is what the band splitting below does.
+ */
+const DEEP_PAGE_CAP = 350;
+
+/** The smallest band worth splitting further, in dollars. */
+const MIN_BAND = 1_000;
+
+/** What the results header claims, which is the whole catalogue and not a page. */
+export function matchCount(html: string): number | null {
+  const m = html.match(/id="results-count"[^>]*>\s*([\d,]+)\s*Matches/i);
+  return m?.[1] ? Number(m[1].replace(/,/g, '')) : null;
+}
+
+/**
+ * Split a band that is too deep to page, in two.
+ *
+ * The top band has no upper bound, so it is split at a multiple of its floor
+ * rather than at a midpoint that does not exist. Returns null when the band is
+ * already too narrow to be worth dividing, in which case the caller pages what
+ * it can and says so.
+ */
+/** A band, written the way a person reads a price range. */
+function bandLabel([lo, hi]: Band): string {
+  return `$${(lo / 1000).toFixed(0)}k-${hi === null ? 'up' : `$${(hi / 1000).toFixed(0)}k`}`;
+}
+
+export function splitBand([lo, hi]: Band): [Band, Band] | null {
+  if (hi === null) return [[lo, lo > 0 ? lo * 2 : 25_000], [lo > 0 ? lo * 2 : 25_000, null]];
+  if (hi - lo <= MIN_BAND) return null;
+  const mid = Math.round((lo + hi) / 2 / 100) * 100;
+  if (mid <= lo || mid >= hi) return null;
+  return [[lo, mid], [mid, hi]];
 }
 
 export function toDraft(r: KbbRecord, now: string): ListingDraft | null {
@@ -339,39 +417,72 @@ export const kbb: SourceAdapter = {
       let offMake = 0;
       let onMake = 0;
 
-      for (let page = 0; page < 3; page++) {
-        const target = url(query, model, page * PAGE_SIZE);
-        let records: KbbRecord[];
-        try {
-          const res = await fetchWithTls(target, {}, { browser: 'chrome' });
-          if (res.status !== 200) {
-            ctx.log(`kbb ${model ?? 'all'} page ${page}: HTTP ${res.status}`);
+      /**
+       * Bands still to walk, deepest-first off the end of the array.
+       *
+       * Seeded with whatever the caller asked for, so a query that already
+       * carries a price range is split inside that range rather than around it.
+       */
+      const queue: Band[] = [[query.priceMin ?? 0, query.priceMax ?? null]];
+      let requests = 0;
+      let split = 0;
+
+      while (queue.length && requests < MAX_PAGES) {
+        const band = queue.pop()!;
+
+        for (let page = 0; page < MAX_PAGES && requests < MAX_PAGES; page++) {
+          const target = url(query, model, page * PAGE_SIZE, band);
+          let records: KbbRecord[];
+          let total: number | null = null;
+          try {
+            const res = await fetchWithTls(target, {}, { browser: 'chrome' });
+            requests += 1;
+            if (res.status !== 200) {
+              ctx.log(`kbb ${model ?? 'all'} ${bandLabel(band)} page ${page}: HTTP ${res.status}`);
+              break;
+            }
+            records = inventoryFrom(res.body);
+            total = matchCount(res.body);
+          } catch (e) {
+            ctx.log(`kbb ${model ?? 'all'} ${bandLabel(band)} page ${page} FAILED: ${(e as Error).message.split('\n')[0]}`);
             break;
           }
-          records = inventoryFrom(res.body);
-        } catch (e) {
-          ctx.log(`kbb ${model ?? 'all'} page ${page} FAILED: ${(e as Error).message.split('\n')[0]}`);
-          break;
-        }
-        if (records.length === 0) break;
 
-        let added = 0;
-        for (const r of records) {
-          // An unrecognised slug answers 200 with unrelated cars. Trust the
-          // record, never the URL that was requested.
-          if (!sameMake(r.make?.name, wanted)) {
-            offMake++;
-            continue;
+          // Too deep to page honestly. Halve it and come back to both halves
+          // rather than walking pages that re-serve the first one.
+          if (page === 0 && total !== null && total > DEEP_PAGE_CAP) {
+            const halves = splitBand(band);
+            if (halves) {
+              queue.push(halves[0], halves[1]);
+              split += 1;
+              break;
+            }
+            // Unsplittable and over the cap: page what is reachable and say so.
+            ctx.log(`kbb ${model ?? 'all'} ${bandLabel(band)}: ${total} cars in a band too narrow to split, reading the first ${DEEP_PAGE_CAP}`);
           }
-          onMake++;
-          const draft = toDraft(r, now);
-          if (!draft || out.has(draft.id)) continue;
-          out.set(draft.id, draft);
-          added++;
+
+          if (records.length === 0) break;
+
+          let added = 0;
+          for (const r of records) {
+            // An unrecognised slug answers 200 with unrelated cars. Trust the
+            // record, never the URL that was requested.
+            if (!sameMake(r.make?.name, wanted)) {
+              offMake++;
+              continue;
+            }
+            onMake++;
+            const draft = toDraft(r, now);
+            if (!draft || out.has(draft.id)) continue;
+            out.set(draft.id, draft);
+            added++;
+          }
+          if (added === 0) break;
+          if (records.length < PAGE_SIZE) break;
         }
-        if (added === 0) break;
-        if (records.length < PAGE_SIZE) break;
       }
+
+      ctx.log(`kbb ${(model ?? 'all').padEnd(12)} ${requests} requests, ${split} bands split, pool ${out.size}`);
 
       if (onMake === 0 && offMake > 0) {
         ctx.log(`kbb ${model ?? 'all'}: slug returned ${offMake} cars, none of them ${query.make}. Slug is wrong.`);
