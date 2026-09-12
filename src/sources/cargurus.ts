@@ -169,8 +169,23 @@ const SEED_URL = 'https://www.cargurus.com/Cars/l-Used-Porsche-m48';
 /**
  * A ceiling, not an expectation. The loop exits on a page that adds no cars.
  *
- * CarGurus paginates with `#resultsPage=N` and the adapter read only the first
- * page, so every car past the first tile set was invisible. A source that is
+ * PAGINATION IS UNSOLVED HERE, and the loop below does not work. A nationwide
+ * Macan search returns about 35 cars from twelve requests, because every
+ * request after the first returns the same tiles and the exit-on-nothing-new
+ * guard eventually stops the walk. Ruled out by measurement on 2026-09-11:
+ *
+ *   ?page=N          accepted and discarded, same 24 tiles
+ *   #resultsPage=N   a fragment, so it never reaches the server at all
+ *   ?offset=N        same 24 tiles through the browser
+ *
+ * A warning for the next attempt, because this cost a wrong conclusion once:
+ * the search tiles are NOT in the server HTML. A plain fetch returns only a
+ * `recommendations` carousel, whose `listingId` values rotate per request and
+ * are not even the right make. Counting those makes any pagination parameter
+ * look like it works. Only a measurement taken through `evaluateInPage`, on the
+ * ids inside `search.tiles`, means anything here.
+ *
+ * A source that is
  * silently truncated is indistinguishable from a source with thin inventory,
  * which is exactly how this survived.
  */
