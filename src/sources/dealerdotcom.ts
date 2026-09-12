@@ -150,6 +150,29 @@ function titleOf(v: DdcVehicle): string {
  * Cached per host for the process, because it is one request that answers for
  * every page of every model afterwards.
  */
+/**
+ * Which `listing.config.id` on the page describes USED inventory.
+ *
+ * Taking the first value found is wrong and quietly so, because a group page
+ * declares every config it serves, comma-joined, new cars included. Measured:
+ * Hendrick's first value is `auto-exotic-used` and returns 20 cars where
+ * `auto-used` returns 11,719; Sonic's first is `auto-new`, which answers with a
+ * healthy 24,074 that are the wrong cars entirely; Ourisman's is
+ * `auto-used on-platform`, a subset of its 3,327. Each one looks like a working
+ * source, which is why this picks deliberately rather than taking what comes
+ * first.
+ */
+export function pickUsedConfig(html: string): string {
+  const values = [...html.matchAll(/"listing\.config\.id"\s*:\s*"([^"]+)"/g)]
+    .flatMap((m) => m[1]!.split(','))
+    .map((v) => v.trim())
+    .filter(Boolean);
+  return values.find((v) => v === 'auto-used')
+    ?? values.find((v) => /used/.test(v) && !/exotic|certified|shared/.test(v))
+    ?? values.find((v) => /used/.test(v))
+    ?? 'auto-used';
+}
+
 const CONFIG_CACHE = new Map<string, { siteId: string; listingConfigId: string } | null>();
 
 export async function discoverConfig(
@@ -164,10 +187,7 @@ export async function discoverConfig(
     const res = await fetchWithTls(`${host}/used-inventory/index.htm`, { headers: { accept: 'text/html' } }, { browser: 'chrome' });
     if (res.status === 200) {
       const siteId = res.body.match(/"siteId"\s*:\s*"([^"]+)"/)?.[1];
-      // The first value is the one the used-inventory listing is built from;
-      // later entries are other franchises' configs on the same page.
-      const cfg = res.body.match(/"listing\.config\.id"\s*:\s*"([^",]+)/)?.[1];
-      if (siteId) found = { siteId, listingConfigId: cfg ?? 'auto-used' };
+      if (siteId) found = { siteId, listingConfigId: pickUsedConfig(res.body) };
     }
   } catch {
     // Discovery is best-effort; the spec's own values are the fallback.
@@ -342,3 +362,31 @@ export const lithia = dealerDotCom({
   id: 'lithia',
   host: 'https://www.lithia.com',
 });
+
+/**
+ * Dealer groups found by scanning the largest US operators for the DDC widget.
+ *
+ * Each is one storefront serving a whole group's stock rather than a single
+ * rooftop, which is why the counts are in the thousands. None carries a siteId:
+ * `discoverConfig` reads it, because on four of these seven the id is not the
+ * domain (Suburban answers to `lithiacollection`, Hendrick to
+ * `hendrickautogroup`, AutoFair to `amsiautofair`, Fred Beans to
+ * `fredbeansdoylestown3`).
+ */
+export const hendrick = dealerDotCom({ id: 'hendrick', host: 'https://www.hendrickcars.com' });
+export const sonicautomotive = dealerDotCom({ id: 'sonicautomotive', host: 'https://www.sonicautomotive.com' });
+export const suburbancollection = dealerDotCom({ id: 'suburbancollection', host: 'https://www.suburbancollection.com' });
+export const ourisman = dealerDotCom({ id: 'ourisman', host: 'https://www.ourisman.com' });
+export const fredbeans = dealerDotCom({ id: 'fredbeans', host: 'https://www.fredbeans.com' });
+export const tomwood = dealerDotCom({ id: 'tomwood', host: 'https://www.tomwood.com' });
+export const autofair = dealerDotCom({ id: 'autofair', host: 'https://www.autofair.com' });
+
+/** A second scan of large US groups, same platform, same three lines each. */
+export const herbchambers = dealerDotCom({ id: 'herbchambers', host: 'https://www.herbchambers.com' });
+export const jimellis = dealerDotCom({ id: 'jimellis', host: 'https://www.jimellis.com' });
+export const leithcars = dealerDotCom({ id: 'leithcars', host: 'https://www.leithcars.com' });
+export const garberauto = dealerDotCom({ id: 'garberauto', host: 'https://www.garberauto.com' });
+export const huffines = dealerDotCom({ id: 'huffines', host: 'https://www.huffines.net' });
+export const fermanauto = dealerDotCom({ id: 'fermanauto', host: 'https://www.fermanauto.com' });
+export const jakesweeney = dealerDotCom({ id: 'jakesweeney', host: 'https://www.jakesweeney.com' });
+export const hallauto = dealerDotCom({ id: 'hallauto', host: 'https://www.hallauto.com' });
