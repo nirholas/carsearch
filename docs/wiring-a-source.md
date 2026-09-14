@@ -1,6 +1,6 @@
 # Wiring a source
 
-98 sources are catalogued; 8 are wired. This is the procedure for the rest, in
+133 sources are catalogued; 63 are wired. This is the procedure for the rest, in
 the order that fails fastest.
 
 The expensive part is never writing the adapter. It is discovery: which
@@ -125,7 +125,7 @@ endpoint, a good payload, and a 401 nobody has cracked yet.
 ## Currently wired
 
 `autotempest` `carscom` `carmax` `cargurus` `bringatrailer` `carsandbids`
-`craigslist` `carvana`
+`craigslist` `carvana` `barrettjackson` `exoticcartrader`
 
 ## Next, in value order
 

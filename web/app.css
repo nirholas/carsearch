@@ -335,6 +335,14 @@ legend { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; co
 
 /* ---------- Sources ---------- */
 .sources-view { max-width: var(--maxw); margin: 0 auto; padding: 22px 22px 60px; }
+.source-catalog-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 14px; }
+.source-catalog-tools label { font-weight: 700; white-space: nowrap; }
+.source-catalog-tools input {
+  width: min(520px, 100%); padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--text);
+}
+.source-catalog-tools span { color: var(--muted); white-space: nowrap; }
+.source-notes { min-width: 340px; max-width: 620px; color: var(--muted); line-height: 1.4; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
 th { color: var(--muted); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }

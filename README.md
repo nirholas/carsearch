@@ -127,6 +127,8 @@ mirrored into the sidebar filters where it can be corrected.
 | Source | Role | Transport | Notes |
 |---|---|---|---|
 | AutoTempest | aggregator | browser | Reaches Carvana and TrueCar, which refuse direct access. Each tile names its origin site, so listings are re-attributed to where the car actually lives. |
+| Exotic Car Trader | specialty marketplace | fetch | Active inventory through the site's HTMX pagination, including price and mileage. |
+| Barrett-Jackson | completed auctions | fetch | Verified sold lots from the latest-event payload, including hammer price and VIN. |
 | Cars.com | dealer inventory | browser | The full record is JSON in a `data-vehicle-details` attribute, richer than the rendered card. |
 | CarMax | retailer | browser | The only source publishing VINs in listing markup, so it dedupes exactly. |
 | Bring a Trailer | completed sales | browser | The sold-price backbone. |

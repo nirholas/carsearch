@@ -662,6 +662,11 @@ async function loadSources() {
   el.innerHTML = '<div class="skeleton"></div>';
   const d = await (await fetch('/api/sources')).json();
   const st = d.stats;
+  const rows = (sources) => sources.map((s) => `<tr>
+    <td>${esc(s.id)}</td><td><a href="${esc(s.homepage)}" target="_blank" rel="noopener">${esc(s.name)}</a></td>
+    <td><span class="pill ${s.status === 'live' ? 'live' : s.status === 'blocked' ? 'blocked' : ''}">${esc(s.status)}</span></td>
+    <td>${esc(s.transport)}</td><td>${esc(s.category)}</td><td>${esc(s.countries.join(', '))}</td>
+    <td>${d.wired.includes(s.id) ? 'yes' : ''}</td><td class="source-notes">${esc(s.notes ?? '')}</td></tr>`).join('');
   el.innerHTML = `
     <div class="comps-strip" style="margin-bottom:18px">
       ${stat('Sources tracked', st.total, `${st.countries.length} countries`)}
@@ -669,14 +674,25 @@ async function loadSources() {
       ${stat('Live', st.byStatus.live ?? 0, 'verified working')}
       ${stat('Blocked', st.byStatus.blocked ?? 0, 'recorded so nobody retests blindly')}
     </div>
+    <div class="source-catalog-tools">
+      <label for="source-catalog-search">Find a source</label>
+      <input id="source-catalog-search" type="search" placeholder="Name, country, category, status…" autocomplete="off">
+      <span id="source-catalog-count">${d.sources.length} sources</span>
+    </div>
     <div class="scroll"><table>
-      <thead><tr><th>id</th><th>name</th><th>status</th><th>transport</th><th>category</th><th>countries</th><th>wired</th></tr></thead>
-      <tbody>${d.sources.map((s) => `<tr>
-        <td>${esc(s.id)}</td><td>${esc(s.name)}</td>
-        <td><span class="pill ${s.status === 'live' ? 'live' : s.status === 'blocked' ? 'blocked' : ''}">${esc(s.status)}</span></td>
-        <td>${esc(s.transport)}</td><td>${esc(s.category)}</td><td>${esc(s.countries.join(', '))}</td>
-        <td>${d.wired.includes(s.id) ? 'yes' : ''}</td></tr>`).join('')}</tbody>
+      <thead><tr><th>id</th><th>name</th><th>status</th><th>transport</th><th>category</th><th>countries</th><th>wired</th><th>coverage notes</th></tr></thead>
+      <tbody id="source-catalog-rows">${rows(d.sources)}</tbody>
     </table></div>`;
+
+  $('#source-catalog-search').addEventListener('input', (event) => {
+    const needle = event.target.value.trim().toLowerCase();
+    const filtered = needle ? d.sources.filter((source) => [
+      source.id, source.name, source.status, source.transport, source.category,
+      source.countries.join(' '), source.notes, d.wired.includes(source.id) ? 'wired' : '',
+    ].some((value) => String(value ?? '').toLowerCase().includes(needle))) : d.sources;
+    $('#source-catalog-rows').innerHTML = rows(filtered);
+    $('#source-catalog-count').textContent = `${filtered.length} of ${d.sources.length} sources`;
+  });
 }
 
 async function loadSourceChips() {
