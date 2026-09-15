@@ -27,6 +27,7 @@ import { rmsothebys } from './rmsothebys.js';
 import { pistonheads, cars24 } from './payload-marketplaces.js';
 import { exoticcartrader } from './exoticcartrader.js';
 import { barrettjackson } from './barrettjackson.js';
+import { goodingco } from './goodingco.js';
 
 /**
  * Every adapter with a working implementation.
@@ -36,7 +37,7 @@ import { barrettjackson } from './barrettjackson.js';
  * actually wired. A source moves from the registry into here when its extractor
  * has been verified against live markup, never before.
  */
-export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, hemmings, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket, autotraderca, carandclassic, classiccars, mercadolibreautos, pakwheels, pistonheads, cars24, collectingcars, mecum, rmsothebys, barrettjackson, exoticcartrader, hertzcarsales, lithia, hendrick, sonicautomotive, suburbancollection, ourisman, fredbeans, tomwood, autofair, kengarff, bmwcamarillo, westherr, germain, walser, kellyauto, herbchambers, jimellis, leithcars, garberauto, huffines, fermanauto, jakesweeney, hallauto, mileone, hertrichs, mcgeecars, keitrucksamerica, minitrucksnet, jpmminitrucks, minitruckimports, keitrucksmarket, keitruckimporters, fourbie, jdmbuysell];
+export const ADAPTERS: SourceAdapter[] = [autotempest, carscom, carmax, cargurus, kbb, hemmings, bringatrailer, carsandbids, craigslist, carvana, copart, dupontregistry, hagertymarketplace, pcarmarket, autoscout24, finnno, blocket, autotraderca, carandclassic, classiccars, mercadolibreautos, pakwheels, pistonheads, cars24, collectingcars, mecum, rmsothebys, barrettjackson, goodingco, exoticcartrader, hertzcarsales, lithia, hendrick, sonicautomotive, suburbancollection, ourisman, fredbeans, tomwood, autofair, kengarff, bmwcamarillo, westherr, germain, walser, kellyauto, herbchambers, jimellis, leithcars, garberauto, huffines, fermanauto, jakesweeney, hallauto, mileone, hertrichs, mcgeecars, keitrucksamerica, minitrucksnet, jpmminitrucks, minitruckimports, keitrucksmarket, keitruckimporters, fourbie, jdmbuysell];
 
 export const adapterById = new Map(ADAPTERS.map((a) => [a.source.id, a]));
 
@@ -44,7 +45,7 @@ export { autotempest, carscom, carmax, cargurus, kbb, bringatrailer, carsandbids
 export { autotraderca, carandclassic, classiccars, mercadolibreautos, pakwheels };
 export { dealerDotCom, hertzcarsales, lithia, hendrick, sonicautomotive, suburbancollection, ourisman, fredbeans, tomwood, autofair, herbchambers, jimellis, leithcars, garberauto, huffines, fermanauto, jakesweeney, hallauto , mileone, hertrichs, mcgeecars } from './dealerdotcom.js';
 export { pistonheads, cars24, mecum, rmsothebys };
-export { barrettjackson, exoticcartrader };
+export { barrettjackson, goodingco, exoticcartrader };
 export { jdmbuysell } from './jdmbuysell.js';
 export { kengarff, bmwcamarillo, westherr, germain, walser, kellyauto, carsCommerce } from './carscommerce.js';
 export { SOURCES, getSource, liveSources, registryStats, sourcesByStatus } from './registry.js';

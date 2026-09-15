@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseExoticInventory } from '../src/sources/exoticcartrader.js';
 import { parseBarrettLots } from '../src/sources/barrettjackson.js';
+import { goodingPrice, parseGoodingLots } from '../src/sources/goodingco.js';
 
 test('Exotic Car Trader parses an active HTMX listing without monthly-payment confusion', () => {
   const html = `
@@ -22,6 +23,28 @@ test('Exotic Car Trader parses an active HTMX listing without monthly-payment co
   assert.equal(row.make, 'Porsche');
   assert.equal(row.model, '911');
   assert.match(row.url!, /2024-porsche-911-260864469$/);
+});
+
+test('Gooding keeps hammer and asking prices distinct and never promotes estimates', () => {
+  assert.deepEqual(goodingPrice({ salePrice: '224000', askingPrice: 300000 }), { price: 224000, kind: 'sold' });
+  assert.deepEqual(goodingPrice({ salePrice: null, askingPrice: 550000 }), { price: 550000, kind: 'ask' });
+  assert.equal(goodingPrice({ lowEstimate: 400000, highEstimate: 500000 }), null);
+
+  const rows = parseGoodingLots([
+    {
+      objectID: 'abc123', title: '2019 Porsche 991 GT2 RS Clubsport', itemType: 'Cars',
+      make: 'Porsche', modelYear: 2019, model: '991 GT2 RS Clubsport', salePrice: '390000',
+      currency: 'USD', slug: '2019-porsche-991-gt2-rs-clubsport-pb26',
+      auctionName: 'Pebble Beach Auctions', auctionEndDate: '1786838400000',
+    },
+    { objectID: 'estimate', title: '1964 Porsche 904', itemType: 'Cars', lowEstimate: 1_000_000, highEstimate: 1_500_000 },
+    { objectID: 'watch', title: 'Porsche dealership sign', itemType: 'Automobilia', salePrice: 900 },
+  ]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.price, 390000);
+  assert.equal(rows[0]?.priceKind, 'sold');
+  assert.equal(rows[0]?.year, 2019);
+  assert.match(rows[0]?.url ?? '', /2019-porsche-991-gt2-rs-clubsport-pb26$/);
 });
 
 test('Barrett-Jackson keeps sold vehicles and rejects unsold or unpriced lots', () => {
