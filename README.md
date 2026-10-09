@@ -189,3 +189,7 @@ copy, modify, or distribute this code without prior written consent. See [LICENS
 
 Third-party dependencies keep their own licenses, and every one currently in use is permissive
 (MIT or Apache-2.0). Nothing copyleft is linked, so the proprietary status of this codebase holds.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=nirholas/carsearch&type=Date)](https://www.star-history.com/#nirholas/carsearch&Date)
