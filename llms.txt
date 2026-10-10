@@ -1,0 +1,28 @@
+# carsearch
+
+> One search across every place a car is listed for sale.
+
+carsearch is an open-source repository by nirholas, part of the three.ws ecosystem.
+
+## Docs
+
+- [README](https://github.com/nirholas/carsearch/blob/HEAD/README.md): install, usage and reference
+- [Why this exists](https://github.com/nirholas/carsearch/blob/HEAD/README.md#why-this-exists)
+- [Quickstart](https://github.com/nirholas/carsearch/blob/HEAD/README.md#quickstart)
+- [The API](https://github.com/nirholas/carsearch/blob/HEAD/README.md#the-api)
+- [Documentation](https://github.com/nirholas/carsearch/blob/HEAD/README.md#documentation)
+- [Asking in plain English](https://github.com/nirholas/carsearch/blob/HEAD/README.md#asking-in-plain-english)
+- [What is wired today](https://github.com/nirholas/carsearch/blob/HEAD/README.md#what-is-wired-today)
+- [Architecture](https://github.com/nirholas/carsearch/blob/HEAD/README.md#architecture)
+- [License](https://github.com/nirholas/carsearch/blob/HEAD/README.md#license)
+- [AGENTS.md](https://github.com/nirholas/carsearch/blob/HEAD/AGENTS.md): guidance for coding agents
+- [Full text for LLMs](https://github.com/nirholas/carsearch/blob/HEAD/llms-full.txt): the README inlined
+
+## Project
+
+- [Source](https://github.com/nirholas/carsearch)
+- [Issues](https://github.com/nirholas/carsearch/issues)
+- [Discussions](https://github.com/nirholas/carsearch/discussions)
+- [Homepage](https://github.com/nirholas/carsearch)
+- [three.ws](https://three.ws): the platform this is part of
+- [All repositories by nirholas](https://github.com/nirholas/nirholas#readme)
