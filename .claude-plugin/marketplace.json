@@ -1,0 +1,21 @@
+{
+  "name": "carsearch",
+  "owner": {
+    "name": "nirholas"
+  },
+  "description": "Search car listings across marketplaces, dealers and auctions with VIN dedup, sold comps and recalls.",
+  "plugins": [
+    {
+      "name": "carsearch",
+      "source": "./plugins/carsearch",
+      "description": "Search car listings across marketplaces, dealers and auctions with VIN dedup, sold comps and recalls.",
+      "category": "data",
+      "tags": [
+        "car-search",
+        "vin",
+        "listings",
+        "automotive"
+      ]
+    }
+  ]
+}
