@@ -1,0 +1,16 @@
+{
+  "name": "carsearch",
+  "version": "0.1.0",
+  "description": "Search car listings across marketplaces, dealers and auctions with VIN dedup, sold comps and recalls.",
+  "author": {
+    "name": "nirholas"
+  },
+  "repository": "https://github.com/nirholas/carsearch",
+  "homepage": "https://github.com/nirholas/carsearch",
+  "keywords": [
+    "car-search",
+    "vin",
+    "listings",
+    "automotive"
+  ]
+}
